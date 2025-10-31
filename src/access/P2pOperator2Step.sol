@@ -3,7 +3,7 @@
 
 // Copy and rename of OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable2Step.sol)
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 import {P2pOperator} from "./P2pOperator.sol";
 

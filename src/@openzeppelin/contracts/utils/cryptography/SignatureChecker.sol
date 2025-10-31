@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // OpenZeppelin Contracts (last updated v4.9.0) (utils/cryptography/SignatureChecker.sol)
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 import "./ECDSA.sol";
 import "../../interfaces/IERC1271.sol";

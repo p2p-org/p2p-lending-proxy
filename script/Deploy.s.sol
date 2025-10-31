@@ -1,10 +1,14 @@
 // SPDX-FileCopyrightText: 2025 P2P Validator <info@p2p.org>
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 import "../lib/forge-std/src/Vm.sol";
+import "../src/@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
+import "../src/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import "../src/adapters/ethena/p2pEthenaProxy/P2pEthenaProxy.sol";
 import "../src/adapters/ethena/p2pEthenaProxyFactory/P2pEthenaProxyFactory.sol";
+import "../src/common/AllowedCalldataChecker.sol";
 import {Script} from "forge-std/Script.sol";
 
 contract Deploy is Script {
@@ -20,12 +24,21 @@ contract Deploy is Script {
         Vm.Wallet memory wallet = vm.createWallet(deployerKey);
 
         vm.startBroadcast(deployerKey);
-            factory = new P2pEthenaProxyFactory(
-                wallet.addr,
-                P2pTreasury,
-                sUSDe,
-                USDe
-            );
+        AllowedCalldataChecker implementation = new AllowedCalldataChecker();
+        ProxyAdmin admin = new ProxyAdmin();
+        bytes memory initData = abi.encodeWithSelector(AllowedCalldataChecker.initialize.selector);
+        TransparentUpgradeableProxy tup = new TransparentUpgradeableProxy(
+            address(implementation),
+            address(admin),
+            initData
+        );
+        factory = new P2pEthenaProxyFactory(
+            wallet.addr,
+            P2pTreasury,
+            address(tup),
+            sUSDe,
+            USDe
+        );
         vm.stopBroadcast();
 
         proxy = P2pEthenaProxy(factory.getReferenceP2pYieldProxy());

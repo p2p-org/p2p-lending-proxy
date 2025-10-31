@@ -1,14 +1,12 @@
 // SPDX-FileCopyrightText: 2025 P2P Validator <info@p2p.org>
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 import "../@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import "../@permit2/interfaces/IAllowanceTransfer.sol";
-import "../common/IAllowedCalldataChecker.sol";
 
 /// @dev External interface of P2pYieldProxy declared to support ERC165 detection.
-interface IP2pYieldProxy is IAllowedCalldataChecker, IERC165 {
+interface IP2pYieldProxy is IERC165 {
 
     /// @notice Emitted when the P2pYieldProxy is initialized
     event P2pYieldProxy__Initialized();
@@ -47,14 +45,10 @@ interface IP2pYieldProxy is IAllowedCalldataChecker, IERC165 {
     )
     external;
 
-    /// @notice Deposits assets into the yield protocol
-    /// @param _permitSingleForP2pYieldProxy The permit single for the P2pYieldProxy
-    /// @param _permit2SignatureForP2pYieldProxy The permit2 signature for the P2pYieldProxy
-    function deposit(
-        IAllowanceTransfer.PermitSingle calldata _permitSingleForP2pYieldProxy,
-        bytes calldata _permit2SignatureForP2pYieldProxy
-    )
-    external;
+    /// @notice Deposits the given asset amount into the underlying yield protocol.
+    /// @param _asset Address of the ERC-20 asset the client wants to supply.
+    /// @param _amount Amount of `_asset` in wei requested for deposit.
+    function deposit(address _asset, uint256 _amount) external;
 
     /// @notice Calls an arbitrary allowed function
     /// @param _yieldProtocolAddress The address of the yield protocol

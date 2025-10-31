@@ -1,7 +1,7 @@
 ## p2p-yield-proxy
 
 Contracts for depositing and withdrawing ERC-20 tokens from yield protocols.
-The current implementation is only compatible with [Ethena](https://ethena.fi/) protocol. 
+The current implementation targets the [Ethena](https://docs.ethena.fi/) staking system (USDe / sUSDe).
 
 ## Running tests
 
@@ -18,32 +18,17 @@ forge test
 forge script script/Deploy.s.sol:Deploy --rpc-url $RPC_URL --private-key $PRIVATE_KEY --broadcast --chain $CHAIN_ID --json --verify --etherscan-api-key $ETHERSCAN_API_KEY -vvvvv
 ```
 
-This script will:
+This script deploys the **P2pEthenaProxyFactory** (and its reference **P2pEthenaProxy**) together with a fresh `AllowedCalldataChecker` proxy.
 
-- deploy and verify on Etherscan the **P2pEthenaProxyFactory** and **P2pEthenaProxy** contracts
-- set the **P2pTreasury** address permanently in the P2pEthenaProxyFactory
-- set the rules for Ethena specific deposit and withdrawal functions
+## Basic Ethena flow
 
-## Basic use case
+See [test/EthenaIntegration.sol](test/EthenaIntegration.sol) for an end-to-end reference executed against a mainnet fork.
 
-![Basic use case diagram](image-1.png)
+### Deposit
 
-#### Ethena Deposit flow
-
-Look at [function _doDeposit()](test/MainnetIntegration.sol#L1000) for a reference implementation of the flow.
-
-1. Website User (called Client in contracts) calls Backend with its (User's) Ethereum address and some Merchant info.
-
-2. Backend uses Merchant info to determine the P2P fee (expressed as client basis points in the contracts).
-
-3. Backend calls P2pEthenaProxyFactory's `getHashForP2pSigner` function to get the hash for the P2pSigner.
+1. The backend determines the client basis points and signs the `getHashForP2pSigner` payload using the configured P2P signer:
 
 ```solidity
-    /// @dev Gets the hash for the P2pSigner
-    /// @param _client The address of client
-    /// @param _clientBasisPoints The client basis points
-    /// @param _p2pSignerSigDeadline The P2pSigner signature deadline
-    /// @return The hash for the P2pSigner
     function getHashForP2pSigner(
         address _client,
         uint96 _clientBasisPoints,
@@ -51,104 +36,38 @@ Look at [function _doDeposit()](test/MainnetIntegration.sol#L1000) for a referen
     ) external view returns (bytes32);
 ```
 
-4. Backend signs the hash with the P2pSigner's private key using `eth_sign`. Signing is necessary to authenticate the client basis points in the contracts.
-
-5. Backend returns JSON to the User with (client address, client basis points, signature deadline, and the signature).
-
-6. Client-side JS code prepares all the necessary data for the Morpho deposit function. Since the deposited tokens will first go from the client to the client's P2pEthenaProxy instance and then from the P2pEthenaProxy instance into the Ethena protocol, both of these transfers are approved by the client via Permit2. The client's P2pEthenaProxy instance address is fetched from the P2pEthenaProxyFactory contract's `predictP2pEthenaProxyAddress` function:
+2. The client locates (or predicts) its deterministic proxy with `P2pEthenaProxyFactory::predictP2pYieldProxyAddress`.
+3. The client approves the proxy for the required USDe allowance using standard `IERC20.approve` (no Permit2 flow).
+4. The client calls `P2pEthenaProxyFactory::deposit` providing:
 
 ```solidity
-    /// @dev Computes the address of a P2pEthenaProxy created by `_createP2pEthenaProxy` function
-    /// @dev P2pEthenaProxy instances are guaranteed to have the same address if _feeDistributorInstance is the same
-    /// @param _client The address of client
-    /// @return address The address of the P2pEthenaProxy instance
-    function predictP2pEthenaProxyAddress(
-        address _client,
-        uint96 _clientBasisPoints
-    ) external view returns (address);
-```
-
-7. Client-side JS code checks if User has already approved the required amount of the deposited token for Permit2. If not, it prompts the User to call the `approve` function of the deposited token contract with the uint256 MAX value and Permit2 contract as the spender.
-
-8. Client-side JS code prompts the User to do `eth_signTypedData_v4` to sign `PermitSingle` from the User's wallet into the P2pEthenaProxy instance
-
-9. Client-side JS code prompts the User to call the `deposit` function of the P2pEthenaProxyFactory contract:
-
-```solidity
-    /// @dev Deposits the yield protocol
-    /// @param _permitSingleForP2pEthenaProxy The permit single for P2pEthenaProxy
-    /// @param _permit2SignatureForP2pEthenaProxy The permit2 signature for P2pEthenaProxy
-    /// @param _clientBasisPoints The client basis points
-    /// @param _p2pSignerSigDeadline The P2pSigner signature deadline
-    /// @param _p2pSignerSignature The P2pSigner signature
-    /// @return P2pEthenaProxyAddress The client's P2pEthenaProxy instance address
     function deposit(
-        IAllowanceTransfer.PermitSingle memory _permitSingleForP2pEthenaProxy,
-        bytes calldata _permit2SignatureForP2pEthenaProxy,
-
+        address _asset,
+        uint256 _amount,
         uint96 _clientBasisPoints,
         uint256 _p2pSignerSigDeadline,
         bytes calldata _p2pSignerSignature
-    )
-    external
-    returns (address P2pEthenaProxyAddress);
+    ) external returns (address proxyAddress);
 ```
 
-#### Ethena Withdrawal flow
+The proxy pulls USDe via `transferFrom`, forwards the tokens into `IStakedUSDe.deposit`, and updates the shared accounting tables so future withdrawals can split yield between the client and treasury.
 
-Look at [function _doWithdraw()](test/MainnetIntegration.sol#L1024) for a reference implementation of the flow.
+### Withdrawal
 
-1. Client-side JS code prepares all the necessary data for the Ethena `cooldownShares` function.
-
-2. Client-side JS code prompts the User to call the `cooldownShares` function of the client's instance of the P2pEthenaProxy contract:
+The proxy exposes helper flows that mirror Ethena’s queued and instant redemption paths:
 
 ```solidity
-    /// @notice redeem shares into assets and starts a cooldown to claim the converted underlying asset
-    /// @param _shares shares to redeem
-    function cooldownShares(uint256 _shares) external returns (uint256 assets);
+function cooldownAssets(uint256 assets) external returns (uint256 shares);
+function cooldownShares(uint256 shares) external returns (uint256 assets);
+function withdrawAfterCooldown() external;
+function withdrawWithoutCooldown(uint256 assets) external;
+function redeemWithoutCooldown(uint256 shares) external;
 ```
 
-3. Wait for the [cooldownDuration](https://etherscan.io/address/0x9d39a5de30e57443bff2a8307a4256c8797a3497#readContract#F9). (Currently, 7 days).
+- `cooldownAssets`/`cooldownShares` begin the Ethena cooldown and track assets in-flight so `calculateAccruedRewards` remains correct.
+- `withdrawAfterCooldown` finalises an unlock, calling `IStakedUSDe.unstake` and splitting the returned USDe between the client and treasury.
+- `withdrawWithoutCooldown` and `redeemWithoutCooldown` provide the instant Ethena flows when the vault permits them.
 
-2. Client-side JS code prompts the User to call the `withdrawAfterCooldown` function of the client's instance of the P2pEthenaProxy contract:
+### Arbitrary call escape hatch
 
-```solidity
-    /// @notice withdraw assets after cooldown has elapsed
-    function withdrawAfterCooldown() external;
-```
-
-The P2pEthenaProxy contract will redeem the tokens from Ethena and send them to User. The amount on top of the deposited amount is split between the User and the P2pTreasury according to the client basis points.
-
-
-## Calling any function on any contracts via P2pEthenaProxy
-
-It's possible for the User to call any function on any contracts via P2pEthenaProxy. This can be useful if it appears that functions of yield protocols beyond simple deposit and withdrawal are needed. Also, it can be useful for claiming any airdrops unknown in advance.
-
-Before the User can use this feature, the P2P operator needs to set the rules for the function call via the `setCalldataRules` function of the P2pEthenaProxyFactory contract:
-
-```solidity
-    /// @dev Sets the calldata rules
-    /// @param _contract The contract address
-    /// @param _selector The selector
-    /// @param _rules The rules
-    function setCalldataRules(
-        address _contract,
-        bytes4 _selector,
-        P2pStructs.Rule[] calldata _rules
-    ) external;
-```
-
-The rules should be as strict as possible to prevent any undesired function calls.
-
-Once the rules are set, the User can call the permitted function on the permitted contract with the permitted calldata via P2pEthenaProxy's `callAnyFunction` function:
-
-```solidity
-    /// @notice Calls an arbitrary allowed function
-    /// @param _yieldProtocolAddress The address of the yield protocol
-    /// @param _yieldProtocolCalldata The calldata to call the yield protocol
-    function callAnyFunction(
-        address _yieldProtocolAddress,
-        bytes calldata _yieldProtocolCalldata
-    )
-    external;
-```
+`P2pYieldProxy::callAnyFunction` is still available. To keep the surface minimal we deploy an upgradable `AllowedCalldataChecker` that currently reverts everything; operators can upgrade or replace it if a broader API is required. Until rules are relaxed, attempts to call arbitrary functions will revert with `AllowedCalldataChecker__NoAllowedCalldata` as demonstrated in the integration test suite.

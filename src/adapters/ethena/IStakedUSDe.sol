@@ -1,21 +1,25 @@
 // SPDX-FileCopyrightText: 2025 P2P Validator <info@p2p.org>
 // SPDX-License-Identifier: MIT
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 import "../../@openzeppelin/contracts/interfaces/IERC4626.sol";
 
+/// @title Interface for Ethena's StakedUSDe vault
+/// @notice Extends the ERC-4626 interface with queued withdrawal helper flows.
 interface IStakedUSDe is IERC4626 {
-    /// @notice redeem assets and starts a cooldown to claim the converted underlying asset
-    /// @param assets assets to redeem
+    /// @notice Redeems assets and starts a cooldown to claim the converted underlying asset.
+    /// @param assets Amount of assets to redeem.
+    /// @return shares Amount of shares burned during the cooldown request.
     function cooldownAssets(uint256 assets) external returns (uint256 shares);
 
-    /// @notice redeem shares into assets and starts a cooldown to claim the converted underlying asset
-    /// @param shares shares to redeem
+    /// @notice Redeems shares into assets and starts a cooldown to claim the converted underlying asset.
+    /// @param shares Amount of shares to redeem.
+    /// @return assets Amount of assets that will be claimable after the cooldown finishes.
     function cooldownShares(uint256 shares) external returns (uint256 assets);
 
-    /// @notice Claim the staking amount after the cooldown has finished. The address can only retire the full amount of assets.
-    /// @dev unstake can be called after cooldown have been set to 0, to let accounts to be able to claim remaining assets locked at Silo
-    /// @param receiver Address to send the assets by the staker
+    /// @notice Claim the staking amount after the cooldown has finished.
+    /// @param receiver Address that will receive the unlocked assets.
     function unstake(address receiver) external;
 }
+
