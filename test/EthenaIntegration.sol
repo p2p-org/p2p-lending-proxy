@@ -11,8 +11,11 @@ import "../src/@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "../src/access/P2pOperator.sol";
 import "../src/adapters/ethena/IStakedUSDe.sol";
 import "../src/adapters/ethena/p2pEthenaProxy/P2pEthenaProxy.sol";
+import "../src/adapters/ethena/p2pEthenaProxy/IP2pEthenaProxy.sol";
 import "../src/adapters/ethena/p2pEthenaProxyFactory/P2pEthenaProxyFactory.sol";
+import "../src/adapters/ethena/p2pEthenaProxyFactory/IP2pEthenaProxyFactory.sol";
 import "../src/common/AllowedCalldataChecker.sol";
+import "../src/p2pYieldProxy/IP2pYieldProxy.sol";
 import "../src/p2pYieldProxyFactory/P2pYieldProxyFactory.sol";
 import "forge-std/Test.sol";
 import "forge-std/Vm.sol";
@@ -139,6 +142,160 @@ contract EthenaIntegration is Test {
         vm.stopPrank();
 
         assertEq(factory.getP2pSigner(), nobody);
+    }
+
+    function test_getHashForP2pSigner_Mainnet() public {
+        bytes32 expected = keccak256(
+            abi.encode(
+                clientAddress,
+                ClientBasisPoints,
+                SigDeadline,
+                address(factory),
+                block.chainid
+            )
+        );
+        bytes32 actual = factory.getHashForP2pSigner(clientAddress, ClientBasisPoints, SigDeadline);
+        assertEq(actual, expected);
+    }
+
+    function test_predictP2pYieldProxyAddress_Mainnet() public {
+        address predicted = factory.predictP2pYieldProxyAddress(clientAddress, ClientBasisPoints);
+        assertEq(predicted, proxyAddress);
+    }
+
+    function test_getReferenceP2pYieldProxy_Mainnet() public {
+        address referenceProxy = factory.getReferenceP2pYieldProxy();
+        assertTrue(referenceProxy != address(0), "reference should be deployed");
+    }
+
+    function test_getAllProxies_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+        _doDeposit();
+        address[] memory proxies = factory.getAllProxies();
+        assertEq(proxies.length, 1);
+        assertEq(proxies[0], proxyAddress);
+    }
+
+    function test_getAllProxiesAfterSecondDeposit_Mainnet() public {
+        deal(USDe, clientAddress, 2 * DepositAmount);
+        _doDeposit();
+        _doDeposit();
+        address[] memory proxies = factory.getAllProxies();
+        assertEq(proxies.length, 1);
+        assertEq(proxies[0], proxyAddress);
+    }
+
+    function test_getP2pSignerAddress_Mainnet() public {
+        assertEq(factory.getP2pSigner(), p2pSignerAddress);
+    }
+
+    function test_invalidP2pSignerSignature_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+        (address rogueSigner, uint256 roguePrivateKey) = makeAddrAndKey("rogueSigner");
+        vm.label(rogueSigner, "rogueSigner");
+
+        bytes memory invalidSignature = _getP2pSignerSignatureWithKey(
+            clientAddress,
+            ClientBasisPoints,
+            SigDeadline,
+            roguePrivateKey
+        );
+
+        vm.startPrank(clientAddress);
+        _ensureProxyAllowance(DepositAmount);
+        vm.expectRevert(P2pYieldProxyFactory__InvalidP2pSignerSignature.selector);
+        factory.deposit(
+            USDe,
+            DepositAmount,
+            ClientBasisPoints,
+            SigDeadline,
+            invalidSignature
+        );
+        vm.stopPrank();
+    }
+
+    function test_p2pSignerSignatureExpired_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+        uint256 expiredDeadline = block.timestamp - 1;
+        bytes memory signature = _getP2pSignerSignature(
+            clientAddress,
+            ClientBasisPoints,
+            expiredDeadline
+        );
+
+        vm.startPrank(clientAddress);
+        _ensureProxyAllowance(DepositAmount);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                P2pYieldProxyFactory__P2pSignerSignatureExpired.selector,
+                expiredDeadline
+            )
+        );
+        factory.deposit(
+            USDe,
+            DepositAmount,
+            ClientBasisPoints,
+            expiredDeadline,
+            signature
+        );
+        vm.stopPrank();
+    }
+
+    function test_depositRequiresAllowance_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+
+        bytes memory signature = _getP2pSignerSignature(
+            clientAddress,
+            ClientBasisPoints,
+            SigDeadline
+        );
+
+        vm.startPrank(clientAddress);
+        vm.expectRevert(bytes("ERC20: insufficient allowance"));
+        factory.deposit(
+            USDe,
+            DepositAmount,
+            ClientBasisPoints,
+            SigDeadline,
+            signature
+        );
+        vm.stopPrank();
+    }
+
+    function test_viewFunctions_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+        _doDeposit();
+
+        assertEq(factory.getP2pOperator(), p2pOperatorAddress);
+        assertEq(factory.getP2pSigner(), p2pSignerAddress);
+
+        P2pEthenaProxy proxy = P2pEthenaProxy(proxyAddress);
+        assertEq(proxy.getFactory(), address(factory));
+        assertEq(proxy.getP2pTreasury(), P2pTreasury);
+        assertEq(proxy.getClient(), clientAddress);
+        assertEq(proxy.getClientBasisPoints(), ClientBasisPoints);
+        assertEq(proxy.getTotalDeposited(USDe), DepositAmount);
+        assertEq(proxy.getTotalWithdrawn(USDe), 0);
+    }
+
+    function test_supportsInterface_Mainnet() public {
+        bool factorySupports = factory.supportsInterface(type(IP2pEthenaProxyFactory).interfaceId);
+        assertTrue(factorySupports, "factory should expose interface id");
+
+        deal(USDe, clientAddress, DepositAmount);
+        _doDeposit();
+        bool proxySupportsEthena = P2pEthenaProxy(proxyAddress).supportsInterface(type(IP2pEthenaProxy).interfaceId);
+        bool proxySupportsYield = P2pEthenaProxy(proxyAddress).supportsInterface(type(IP2pYieldProxy).interfaceId);
+        assertTrue(proxySupportsEthena, "proxy should expose Ethena interface");
+        assertTrue(proxySupportsYield, "proxy should expose base yield interface");
+    }
+
+    function test_getHashForP2pSignerMatchesSignature_Mainnet() public {
+        bytes32 hash = factory.getHashForP2pSigner(clientAddress, ClientBasisPoints, SigDeadline);
+        bytes32 signedHash = ECDSA.toEthSignedMessageHash(hash);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(p2pSignerPrivateKey, signedHash);
+        address recovered = ECDSA.recover(signedHash, v, r, s);
+        assertEq(recovered, p2pSignerAddress);
     }
 
     function test_withdrawViaCallAnyFunction_Mainnet() public {
@@ -327,13 +484,27 @@ contract EthenaIntegration is Test {
         uint96 _clientBasisPoints,
         uint256 _sigDeadline
     ) private view returns (bytes memory) {
+        return _getP2pSignerSignatureWithKey(
+            _clientAddress,
+            _clientBasisPoints,
+            _sigDeadline,
+            p2pSignerPrivateKey
+        );
+    }
+
+    function _getP2pSignerSignatureWithKey(
+        address _clientAddress,
+        uint96 _clientBasisPoints,
+        uint256 _sigDeadline,
+        uint256 _signerPrivateKey
+    ) private view returns (bytes memory) {
         bytes32 hashForP2pSigner = factory.getHashForP2pSigner(
             _clientAddress,
             _clientBasisPoints,
             _sigDeadline
         );
         bytes32 ethSignedMessageHashForP2pSigner = ECDSA.toEthSignedMessageHash(hashForP2pSigner);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(p2pSignerPrivateKey, ethSignedMessageHashForP2pSigner);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(_signerPrivateKey, ethSignedMessageHashForP2pSigner);
         return abi.encodePacked(r, s, v);
     }
 
