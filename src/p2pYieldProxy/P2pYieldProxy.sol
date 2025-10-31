@@ -351,6 +351,7 @@ abstract contract P2pYieldProxy is
         return s_totalWithdrawn[_asset].amount;
     }
 
+    /// @inheritdoc IP2pYieldProxy
     function getUserPrincipal(address _asset) public view returns(uint256) {
         uint256 totalDeposited = s_totalDeposited[_asset];
         uint256 totalWithdrawn = s_totalWithdrawn[_asset].amount;
@@ -360,6 +361,7 @@ abstract contract P2pYieldProxy is
         return 0;
     }
 
+    /// @inheritdoc IP2pYieldProxy
     function calculateAccruedRewards(address _yieldProtocolAddress, address _asset) public view virtual returns(int256) {
         uint256 currentAmount = _getCurrentAssetAmount(_yieldProtocolAddress, _asset);
         uint256 userPrincipal = getUserPrincipal(_asset);
@@ -368,6 +370,7 @@ abstract contract P2pYieldProxy is
 
     function _getCurrentAssetAmount(address _yieldProtocolAddress, address _asset) internal view virtual returns (uint256);
 
+    /// @inheritdoc IP2pYieldProxy
     function getLastFeeCollectionTime(address _asset) public view returns(uint48) {
         return s_totalWithdrawn[_asset].lastFeeCollectionTime;
     }

@@ -61,6 +61,13 @@ interface IP2pYieldProxyFactory is IAllowedCalldataChecker, IERC165 {
         address _newP2pSigner
     ) external;
 
+    /// @notice Starts a pending transfer of the factory operator role.
+    /// @param _newP2pOperator Address that will receive the operator role once accepted.
+    function transferP2pOperator(address _newP2pOperator) external;
+
+    /// @notice Finalises a pending operator transfer.
+    function acceptP2pOperator() external;
+
     /// @notice Returns the implementation contract used as the template for future proxies.
     /// @return referenceProxy Address of the proxy implementation clone target.
     function getReferenceP2pYieldProxy() external view returns (address referenceProxy);
@@ -83,6 +90,10 @@ interface IP2pYieldProxyFactory is IAllowedCalldataChecker, IERC165 {
     /// @notice Returns the operator allowed to manage privileged actions on the factory.
     /// @return operator Address of the current P2P operator.
     function getP2pOperator() external view returns (address operator);
+
+    /// @notice Returns a pending operator awaiting acceptance.
+    /// @return pendingOperator Address of the pending operator or zero if none.
+    function getPendingP2pOperator() external view returns (address pendingOperator);
 
     /// @notice Returns every proxy address created by this factory.
     /// @return proxies Array containing the addresses of all instantiated proxies.

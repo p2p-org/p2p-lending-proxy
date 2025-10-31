@@ -56,6 +56,8 @@ The proxy pulls USDe via `transferFrom`, forwards the tokens into `IStakedUSDe.d
 
 The proxy exposes helper flows that mirror Ethena’s queued and instant redemption paths:
 
+- Client-facing helpers mirror Ethena’s queued and instant redemption paths:
+
 ```solidity
 function cooldownAssets(uint256 assets) external returns (uint256 shares);
 function cooldownShares(uint256 shares) external returns (uint256 assets);
@@ -64,9 +66,17 @@ function withdrawWithoutCooldown(uint256 assets) external;
 function redeemWithoutCooldown(uint256 shares) external;
 ```
 
-- `cooldownAssets`/`cooldownShares` begin the Ethena cooldown and track assets in-flight so `calculateAccruedRewards` remains correct.
-- `withdrawAfterCooldown` finalises an unlock, calling `IStakedUSDe.unstake` and splitting the returned USDe between the client and treasury.
-- `withdrawWithoutCooldown` and `redeemWithoutCooldown` provide the instant Ethena flows when the vault permits them.
+- Operator-facing helpers consume the current accrued-rewards portion without requiring the client to initiate the flow:
+
+```solidity
+function cooldownAssetsAccruedRewards() external returns (uint256 shares);
+function withdrawAfterCooldownAccruedRewards() external;
+function withdrawWithoutCooldownAccruedRewards() external;
+```
+
+- `cooldownAssets`/`cooldownShares` begin the Ethena cooldown and track assets in-flight so `calculateAccruedRewards` remains correct. The operator variant automatically queues the entire accrued balance.
+- `withdrawAfterCooldown` finalises an unlock, calling `IStakedUSDe.unstake` and splitting the returned USDe between the client and treasury. The operator variant enforces that the withdrawal does not exceed the accrued rewards.
+- `withdrawWithoutCooldown` and `redeemWithoutCooldown` provide the instant Ethena flows when the vault permits them. The operator variant uses the accrued rewards amount directly.
 
 ### Arbitrary call escape hatch
 

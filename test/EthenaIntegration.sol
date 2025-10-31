@@ -144,7 +144,7 @@ contract EthenaIntegration is Test {
         assertEq(factory.getP2pSigner(), nobody);
     }
 
-    function test_getHashForP2pSigner_Mainnet() public {
+    function test_getHashForP2pSigner_Mainnet() public view {
         bytes32 expected = keccak256(
             abi.encode(
                 clientAddress,
@@ -158,12 +158,12 @@ contract EthenaIntegration is Test {
         assertEq(actual, expected);
     }
 
-    function test_predictP2pYieldProxyAddress_Mainnet() public {
+    function test_predictP2pYieldProxyAddress_Mainnet() public view {
         address predicted = factory.predictP2pYieldProxyAddress(clientAddress, ClientBasisPoints);
         assertEq(predicted, proxyAddress);
     }
 
-    function test_getReferenceP2pYieldProxy_Mainnet() public {
+    function test_getReferenceP2pYieldProxy_Mainnet() public view {
         address referenceProxy = factory.getReferenceP2pYieldProxy();
         assertTrue(referenceProxy != address(0), "reference should be deployed");
     }
@@ -185,7 +185,7 @@ contract EthenaIntegration is Test {
         assertEq(proxies[0], proxyAddress);
     }
 
-    function test_getP2pSignerAddress_Mainnet() public {
+    function test_getP2pSignerAddress_Mainnet() public view {
         assertEq(factory.getP2pSigner(), p2pSignerAddress);
     }
 
@@ -300,7 +300,7 @@ contract EthenaIntegration is Test {
         vm.stopPrank();
     }
 
-    function test_getHashForP2pSignerMatchesSignature_Mainnet() public {
+    function test_getHashForP2pSignerMatchesSignature_Mainnet() public view {
         bytes32 hash = factory.getHashForP2pSigner(clientAddress, ClientBasisPoints, SigDeadline);
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(p2pSignerPrivateKey, signedHash);

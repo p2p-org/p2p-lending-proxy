@@ -4,11 +4,13 @@
 pragma solidity 0.8.30;
 
 import "../../../p2pYieldProxy/P2pYieldProxy.sol";
+import "../../../p2pYieldProxy/IP2pYieldProxy.sol";
 import "../IStakedUSDe.sol";
 import "./IP2pEthenaProxy.sol";
 import {IERC4626} from "../../../@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "../../../@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "../../../@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC165} from "../../../@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 error P2pEthenaProxy__InvalidDepositAsset(address asset);
 error P2pEthenaProxy__UnsupportedAsset(address asset);
@@ -56,8 +58,11 @@ contract P2pEthenaProxy is P2pYieldProxy, IP2pEthenaProxy {
         i_USDe = _USDe;
     }
 
-    /// @inheritdoc IP2pYieldProxy
-    function deposit(address _asset, uint256 _amount) external override onlyFactory {
+    function deposit(address _asset, uint256 _amount)
+        external
+        override(IP2pYieldProxy, P2pYieldProxy)
+        onlyFactory
+    {
         if (_asset != i_USDe) {
             revert P2pEthenaProxy__InvalidDepositAsset(_asset);
         }
@@ -223,7 +228,7 @@ contract P2pEthenaProxy is P2pYieldProxy, IP2pEthenaProxy {
         public
         view
         virtual
-        override(P2pYieldProxy)
+        override(P2pYieldProxy, IERC165)
         returns (bool)
     {
         return interfaceId == type(IP2pEthenaProxy).interfaceId ||
