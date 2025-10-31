@@ -290,6 +290,16 @@ contract EthenaIntegration is Test {
         assertTrue(proxySupportsYield, "proxy should expose base yield interface");
     }
 
+    function test_operatorCooldownAssets_RevertsWithoutAccruedRewards_Mainnet() public {
+        deal(USDe, clientAddress, DepositAmount);
+        _doDeposit();
+
+        vm.startPrank(p2pOperatorAddress);
+        vm.expectRevert(P2pEthenaProxy__ZeroAccruedRewards.selector);
+        P2pEthenaProxy(proxyAddress).cooldownAssetsAccruedRewards();
+        vm.stopPrank();
+    }
+
     function test_getHashForP2pSignerMatchesSignature_Mainnet() public {
         bytes32 hash = factory.getHashForP2pSigner(clientAddress, ClientBasisPoints, SigDeadline);
         bytes32 signedHash = ECDSA.toEthSignedMessageHash(hash);
@@ -314,6 +324,7 @@ contract EthenaIntegration is Test {
         P2pEthenaProxy(proxyAddress).callAnyFunction(USDe, withdrawalCallData);
         vm.stopPrank();
     }
+
 
     function test_transferP2pOperator_Mainnet() public {
         address newOperator = makeAddr("newOperator");

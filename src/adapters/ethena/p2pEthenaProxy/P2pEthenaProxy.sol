@@ -14,6 +14,9 @@ error P2pEthenaProxy__InvalidDepositAsset(address asset);
 error P2pEthenaProxy__UnsupportedAsset(address asset);
 error P2pEthenaProxy__ZeroAddressUSDe();
 error P2pEthenaProxy__ZeroAddressStakedUSDe();
+error P2pEthenaProxy__NotP2pOperator(address caller);
+error P2pEthenaProxy__ZeroAccruedRewards();
+error P2pEthenaProxy__AmountExceedsAccrued(uint256 requested, uint256 accrued);
 
 /// @title Adapter for interacting with the Ethena staking vault through a client proxy
 /// @notice Handles deposits, cooldown flows, and withdrawals while enforcing the P2P fee split.
@@ -70,14 +73,33 @@ contract P2pEthenaProxy is P2pYieldProxy, IP2pEthenaProxy {
         );
     }
 
+    modifier onlyP2pOperator() {
+        if (msg.sender != i_factory.getP2pOperator()) {
+            revert P2pEthenaProxy__NotP2pOperator(msg.sender);
+        }
+        _;
+    }
+
     /// @inheritdoc IP2pEthenaProxy
     function cooldownAssets(uint256 _assets)
         external
         onlyClient
         returns (uint256 shares)
     {
-        shares = IStakedUSDe(i_stakedUSDe).cooldownAssets(_assets);
-        s_assetsCoolingDown += _assets;
+        shares = _cooldownAssets(_assets);
+    }
+
+    /// @inheritdoc IP2pEthenaProxy
+    function cooldownAssetsAccruedRewards()
+        external
+        onlyP2pOperator
+        returns (uint256 shares)
+    {
+        uint256 accrued = _positiveAccruedRewards();
+        if (accrued == 0) {
+            revert P2pEthenaProxy__ZeroAccruedRewards();
+        }
+        shares = _cooldownAssets(accrued);
     }
 
     /// @inheritdoc IP2pEthenaProxy
@@ -92,29 +114,43 @@ contract P2pEthenaProxy is P2pYieldProxy, IP2pEthenaProxy {
 
     /// @inheritdoc IP2pEthenaProxy
     function withdrawAfterCooldown() external onlyClient {
-        uint256 withdrawn = _withdraw(
-            i_stakedUSDe,
-            i_USDe,
-            abi.encodeCall(IStakedUSDe.unstake, (address(this)))
-        );
+        _withdrawAfterCooldownInternal();
+    }
 
-        if (withdrawn >= s_assetsCoolingDown) {
-            s_assetsCoolingDown = 0;
-        } else {
-            s_assetsCoolingDown -= withdrawn;
+    /// @inheritdoc IP2pEthenaProxy
+    function withdrawAfterCooldownAccruedRewards() external onlyP2pOperator {
+        uint256 accruedBefore = _positiveAccruedRewards();
+        if (accruedBefore == 0) {
+            revert P2pEthenaProxy__ZeroAccruedRewards();
+        }
+
+        uint256 withdrawn = _withdrawAfterCooldownInternal();
+
+        if (withdrawn > accruedBefore) {
+            revert P2pEthenaProxy__AmountExceedsAccrued(withdrawn, accruedBefore);
         }
     }
 
     /// @inheritdoc IP2pEthenaProxy
     function withdrawWithoutCooldown(uint256 _assets) external onlyClient {
-        _withdraw(
-            i_stakedUSDe,
-            i_USDe,
-            abi.encodeCall(
-                IERC4626.withdraw,
-                (_assets, address(this), address(this))
-            )
-        );
+        _withdrawWithoutCooldownInternal(_assets);
+    }
+
+    /// @inheritdoc IP2pEthenaProxy
+    function withdrawWithoutCooldownAccruedRewards()
+        external
+        onlyP2pOperator
+    {
+        uint256 accruedBefore = _positiveAccruedRewards();
+        if (accruedBefore == 0) {
+            revert P2pEthenaProxy__ZeroAccruedRewards();
+        }
+
+        uint256 withdrawn = _withdrawWithoutCooldownInternal(accruedBefore);
+
+        if (withdrawn > accruedBefore) {
+            revert P2pEthenaProxy__AmountExceedsAccrued(withdrawn, accruedBefore);
+        }
     }
 
     /// @inheritdoc IP2pEthenaProxy
@@ -145,6 +181,41 @@ contract P2pEthenaProxy is P2pYieldProxy, IP2pEthenaProxy {
         uint256 sharesBalance = IERC4626(i_stakedUSDe).balanceOf(address(this));
         uint256 assetsFromShares = IERC4626(i_stakedUSDe).previewRedeem(sharesBalance);
         return assetsFromShares + s_assetsCoolingDown;
+    }
+
+    function _cooldownAssets(uint256 _assets) private returns (uint256 shares) {
+        shares = IStakedUSDe(i_stakedUSDe).cooldownAssets(_assets);
+        s_assetsCoolingDown += _assets;
+    }
+
+    function _withdrawAfterCooldownInternal() private returns (uint256 withdrawn) {
+        withdrawn = _withdraw(
+            i_stakedUSDe,
+            i_USDe,
+            abi.encodeCall(IStakedUSDe.unstake, (address(this)))
+        );
+
+        if (withdrawn >= s_assetsCoolingDown) {
+            s_assetsCoolingDown = 0;
+        } else {
+            s_assetsCoolingDown -= withdrawn;
+        }
+    }
+
+    function _withdrawWithoutCooldownInternal(uint256 _assets) private returns (uint256 withdrawn) {
+        withdrawn = _withdraw(
+            i_stakedUSDe,
+            i_USDe,
+            abi.encodeCall(
+                IERC4626.withdraw,
+                (_assets, address(this), address(this))
+            )
+        );
+    }
+
+    function _positiveAccruedRewards() private view returns (uint256) {
+        int256 accrued = calculateAccruedRewards(i_stakedUSDe, i_USDe);
+        return accrued > 0 ? uint256(accrued) : 0;
     }
 
     /// @inheritdoc ERC165
