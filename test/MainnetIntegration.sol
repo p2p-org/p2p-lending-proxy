@@ -462,4 +462,80 @@ contract MainnetIntegration is Test {
         vm.roll(block.number + blocks);
         vm.warp(block.timestamp + blocks);
     }
+
+    /// BUG-FLOW TEST
+function test_DoubleFeeCollectionBug_OperatorThenClientWithdraw() external {
+    // ============================================================
+    // STEP 1: CLIENT DEPOSITS 1000 USDC
+    // BUG-FLOW: s_totalDeposited = 1000, s_totalWithdrawn = 0
+    // ============================================================
+    asset = USDC;
+    vault = VAULT_USDC;
+    uint256 depositAmount = 1000e6; // 1000 USDC
+    deal(asset, client, depositAmount);
+
+    bytes memory signature = _getP2pSignerSignature(CLIENT_BPS, SIG_DEADLINE);
+    vm.startPrank(client);
+    IERC20(asset).safeApprove(proxyAddress, 0);
+    IERC20(asset).safeApprove(proxyAddress, type(uint256).max);
+    factory.deposit(vault, depositAmount, CLIENT_BPS, SIG_DEADLINE, signature);
+    vm.stopPrank();
+
+    uint256 clientStart = IERC20(asset).balanceOf(client);
+    uint256 treasuryStart = IERC20(asset).balanceOf(P2P_TREASURY);
+
+    // ============================================================
+    // STEP 2: VAULT ACCRUES 5.96 USDC PROFIT
+    // BUG-FLOW: Vault grows from 1000 to 1005.96 USDC
+    // getUserPrincipal() = 1000 - 0 = 1000 ✅ 
+    // calculateAccruedRewards() = 1005.96 - 1000 = 5.96 ✅ 
+    // ============================================================
+    uint256 shares = IERC20(vault).balanceOf(proxyAddress);
+    uint256 assetsBefore = IERC4626(vault).convertToAssets(shares);
+    _forward(1_000_000);
+    uint256 assetsAfter = IERC4626(vault).convertToAssets(shares);
+    uint256 profit = assetsAfter - assetsBefore;
+
+    // ============================================================
+    // STEP 3: OPERATOR WITHDRAWS 5.96 USDC PROFIT
+    // BUG-FLOW: s_totalWithdrawn = 5.96 ⚠️ PROBLEM STARTS HERE!
+    // After this: getUserPrincipal() = 1000 - 5.96 = 994.04 ❌
+    // Fees collected: 0.77 USDC (13% of 5.96) ✅
+    // ============================================================
+    vm.prank(p2pOperator);
+    P2pMorphoProxy(proxyAddress).withdrawAccruedRewards(vault);
+
+    // ============================================================
+    // STEP 4: CLIENT WITHDRAWS REMAINING 1000 USDC
+    // BUG-FLOW: calculateAccruedRewards() = 1000 - 994.04 = 5.96 ❌
+    // Fees collected AGAIN: 0.77 USDC ❌ DOUBLE FEE!
+    // Client loses: 0.77 USDC, Treasury gains: 0.77 USDC extra
+    // ============================================================
+    uint256 remainingShares = IERC20(vault).balanceOf(proxyAddress);
+    vm.prank(client);
+    P2pMorphoProxy(proxyAddress).withdraw(vault, remainingShares);
+
+    // Calculate results
+    uint256 clientReceived = IERC20(asset).balanceOf(client) - clientStart;
+    uint256 treasuryReceived = IERC20(asset).balanceOf(P2P_TREASURY) - treasuryStart;
+    uint256 expectedClient = depositAmount + ((profit * CLIENT_BPS) / 10_000);
+    uint256 expectedTreasury = (profit * (10_000 - CLIENT_BPS)) / 10_000;
+    uint256 clientLoss = expectedClient - clientReceived;
+    uint256 treasuryExtra = treasuryReceived - expectedTreasury;
+
+    console.log("\n=== BUG: Double Fee Collection (1000 USDC Deposit) ===");
+    console.log("Deposit:  1000.00 USDC");
+    console.log("Profit:   %s.%s USDC", profit / 1e6, (profit % 1e6) / 1e4);
+    console.log("\nClient:");
+    console.log("  Expected: %s.%s USDC", expectedClient / 1e6, (expectedClient % 1e6) / 1e4);
+    console.log("  Actual:   %s.%s USDC", clientReceived / 1e6, (clientReceived % 1e6) / 1e4);
+    console.log("  LOST:     %s.%s USDC", clientLoss / 1e6, (clientLoss % 1e6) / 1e4);
+    console.log("\nTreasury:");
+    console.log("  Expected: %s.%s USDC", expectedTreasury / 1e6, (expectedTreasury % 1e6) / 1e4);
+    console.log("  Actual:   %s.%s USDC", treasuryReceived / 1e6, (treasuryReceived % 1e6) / 1e4);
+    console.log("  EXTRA:    %s.%s USDC (collected ~2x fees!)", treasuryExtra / 1e6, (treasuryExtra % 1e6) / 1e4);
+
+    assertEq(clientReceived, expectedClient, "Client lost funds");
+    assertEq(treasuryReceived, expectedTreasury, "Treasury gained extra");
+}
 }
