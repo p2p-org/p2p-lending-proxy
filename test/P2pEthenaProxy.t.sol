@@ -336,6 +336,34 @@ contract P2pEthenaProxyUnitTest is Test {
         proxy.withdrawWithoutCooldownAccruedRewards();
     }
 
+    function testDoubleFeeCollectionBug_OperatorThenClientWithdraw() public {
+        _clientDeposit(DEPOSIT);
+        stakedUsde.increaseYield(250 ether);
+
+        uint256 treasuryBeforeRewards = usde.balanceOf(treasury);
+        uint256 clientBeforeRewards = usde.balanceOf(client);
+
+        vm.prank(p2pOperator);
+        proxy.withdrawWithoutCooldownAccruedRewards();
+
+        uint256 clientAfterRewards = usde.balanceOf(client);
+        uint256 treasuryAfterRewards = usde.balanceOf(treasury);
+
+        uint256 remainingShares = stakedUsde.balanceOf(address(proxy));
+
+        vm.prank(client);
+        proxy.redeemWithoutCooldown(remainingShares);
+
+        uint256 clientPrincipalReceived = usde.balanceOf(client) - clientAfterRewards;
+        uint256 treasuryPrincipalGain = usde.balanceOf(treasury) - treasuryAfterRewards;
+
+        assertApproxEqAbs(clientPrincipalReceived, DEPOSIT, 1, "client principal received");
+        assertLe(treasuryPrincipalGain, 1, "treasury gained extra");
+        assertEq(proxy.getUserPrincipal(address(usde)), 0, "principal should be zero");
+        assertGt(treasuryAfterRewards - treasuryBeforeRewards, 0, "treasury did not collect yield");
+        assertGt(clientAfterRewards - clientBeforeRewards, 0, "client did not receive yield share");
+    }
+
     function testOperatorWithdrawAfterCooldownWithinAccrued() public {
         _clientDeposit(DEPOSIT);
         stakedUsde.increaseYield(150 ether);

@@ -261,9 +261,19 @@ abstract contract P2pYieldProxy is
 
         withdrawnAmount = assetAmountAfter - assetAmountBefore;
 
+        uint256 positiveAccruedRewards;
+        if (_accruedRewards > 0) {
+            positiveAccruedRewards = uint256(_accruedRewards);
+        }
+
+        uint256 profitPortion = withdrawnAmount > positiveAccruedRewards
+            ? positiveAccruedRewards
+            : withdrawnAmount;
+        uint256 principalPortion = withdrawnAmount - profitPortion;
+
         Withdrawn memory withdrawn = s_totalWithdrawn[_asset];
         uint256 totalWithdrawnBefore = uint256(withdrawn.amount);
-        uint256 totalWithdrawnAfter = totalWithdrawnBefore + withdrawnAmount;
+        uint256 totalWithdrawnAfter = totalWithdrawnBefore + principalPortion;
 
         // update total withdrawn
         withdrawn.amount = uint208(totalWithdrawnAfter);
@@ -271,9 +281,9 @@ abstract contract P2pYieldProxy is
         s_totalWithdrawn[_asset] = withdrawn;
 
         uint256 p2pAmount;
-        if (_accruedRewards > 0) {
+        if (profitPortion > 0) {
             // That extra 9999 ensures that any nonzero remainder will push the result up by 1 (ceiling division).
-            p2pAmount = (uint256(_accruedRewards) * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
+            p2pAmount = (profitPortion * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
         }
         uint256 clientAmount = withdrawnAmount - p2pAmount;
 
