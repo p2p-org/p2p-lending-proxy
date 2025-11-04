@@ -535,7 +535,14 @@ function test_DoubleFeeCollectionBug_OperatorThenClientWithdraw() external {
     console.log("  Actual:   %s.%s USDC", treasuryReceived / 1e6, (treasuryReceived % 1e6) / 1e4);
     console.log("  EXTRA:    %s.%s USDC (collected ~2x fees!)", treasuryExtra / 1e6, (treasuryExtra % 1e6) / 1e4);
 
-    assertEq(clientReceived, expectedClient, "Client lost funds");
-    assertEq(treasuryReceived, expectedTreasury, "Treasury gained extra");
+    uint256 clientDelta = clientReceived > expectedClient
+        ? clientReceived - expectedClient
+        : expectedClient - clientReceived;
+    assertLe(clientDelta, 1, "Client lost funds");
+
+    uint256 treasuryDelta = treasuryReceived > expectedTreasury
+        ? treasuryReceived - expectedTreasury
+        : expectedTreasury - treasuryReceived;
+    assertLe(treasuryDelta, 1, "Treasury gained extra");
 }
 }

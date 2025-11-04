@@ -204,7 +204,8 @@ abstract contract P2pYieldProxy is Initializable, ReentrancyGuardUpgradeable, ER
 
         uint256 p2pAmount;
         if (yieldPaid > 0) {
-            p2pAmount = (yieldPaid * (10_000 - s_clientBasisPoints)) / 10_000;
+            // That extra 9999 ensures that any nonzero remainder will push the result up by 1 (ceiling division).
+            p2pAmount = (yieldPaid * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
         }
         uint256 clientAmount = newAssetAmount - p2pAmount;
 
