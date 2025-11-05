@@ -283,7 +283,7 @@ abstract contract P2pYieldProxy is
         uint256 p2pAmount;
         if (profitPortion > 0) {
             // That extra 9999 ensures that any nonzero remainder will push the result up by 1 (ceiling division).
-            p2pAmount = (profitPortion * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
+            p2pAmount = calculateP2pFeeAmount(profitPortion);
         }
         uint256 clientAmount = withdrawnAmount - p2pAmount;
 
@@ -389,5 +389,13 @@ abstract contract P2pYieldProxy is
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
         return interfaceId == type(IP2pYieldProxy).interfaceId ||
             super.supportsInterface(interfaceId);
+    }
+
+    /// @notice Calculates P2P treasury fee amount using ceiling division
+    /// @param _amount amount
+    /// @return p2pFeeAmount p2p fee amount
+    function calculateP2pFeeAmount(uint256 _amount) internal view returns (uint256 p2pFeeAmount) {
+        if (_amount == 0) return 0;
+        p2pFeeAmount = (_amount * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
     }
 }
