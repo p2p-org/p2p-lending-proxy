@@ -109,7 +109,7 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         uint256 newAssetAmount = assetAmountAfter - assetAmountBefore;
         require(newAssetAmount > 0, P2pMorphoProxy__NothingClaimed());
 
-        uint256 p2pAmount = (newAssetAmount * (10_000 - s_clientBasisPoints)) / 10_000;
+        uint256 p2pAmount = calculateP2pFeeAmount(newAssetAmount);
         uint256 clientAmount = newAssetAmount - p2pAmount;
 
         if (p2pAmount > 0) {
