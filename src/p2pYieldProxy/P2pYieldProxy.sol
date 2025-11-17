@@ -314,6 +314,6 @@ abstract contract P2pYieldProxy is Initializable, ReentrancyGuardUpgradeable, ER
     /// @return p2pFeeAmount p2p fee amount
     function calculateP2pFeeAmount(uint256 _amount) internal view returns (uint256 p2pFeeAmount) {
         if (_amount == 0) return 0;
-        p2pFeeAmount = (_amount * (10_000 - s_clientBasisPointsOfProfit) + 9999) / 10_000;
+        p2pFeeAmount = (_amount * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
     }
 }
