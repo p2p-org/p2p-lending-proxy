@@ -97,7 +97,11 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         if (msg.sender != s_client) {
             shouldCheckP2pOperator = true;
         }
-        IP2pMorphoProxyFactory(address(i_factory)).checkMorphoUrdClaim(msg.sender, shouldCheckP2pOperator, _distributor);
+        IP2pMorphoProxyFactory(address(i_factory)).checkMorphoUrdClaim(
+            msg.sender,
+            shouldCheckP2pOperator,
+            _distributor
+        );
 
         bytes memory urdClaimCalldata =
             abi.encodeCall(IMorphoBundler.urdClaim, (_distributor, address(this), _reward, _amount, _proof, false));
@@ -119,7 +123,13 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         }
         IERC20(_reward).safeTransfer(s_client, clientAmount);
 
-        emit P2pMorphoProxy__ClaimedMorphoUrd(_distributor, _reward, newAssetAmount, p2pAmount, clientAmount);
+        emit P2pMorphoProxy__ClaimedMorphoUrd(
+            _distributor,
+            _reward,
+            newAssetAmount,
+            p2pAmount,
+            clientAmount
+        );
     }
 
     /// @inheritdoc IP2pMorphoProxy
@@ -146,26 +156,24 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         if (msg.sender != s_client) {
             shouldCheckP2pOperator = true;
         }
-        IP2pMorphoProxyFactory(address(i_factory)).checkMorphoUrdClaim(msg.sender, shouldCheckP2pOperator, _distributor);
+        IP2pMorphoProxyFactory(address(i_factory)).checkMorphoUrdClaim(
+            msg.sender,
+            shouldCheckP2pOperator,
+            _distributor
+        );
 
         address thisAddress = address(this);
         address[] memory users = new address[](claimsLength);
+        address[] memory payoutTokens = new address[](claimsLength);
+        address[] memory uniqueTokens = new address[](claimsLength);
+        uint256 uniqueTokensCount;
         for (uint256 i; i < claimsLength; ++i) {
             users[i] = thisAddress;
-        }
-
-        address[] memory payoutTokens = new address[](claimsLength);
-        for (uint256 i; i < claimsLength; ++i) {
             address payoutToken = _payoutTokens.length == 0 ? _tokens[i] : _payoutTokens[i];
             if (payoutToken == address(0)) {
                 payoutToken = _tokens[i];
             }
             payoutTokens[i] = payoutToken;
-        }
-
-        address[] memory uniqueTokens = new address[](claimsLength);
-        uint256 uniqueTokensCount;
-        for (uint256 i; i < claimsLength; ) {
             (, bool isNew) = _getTokenIndex(uniqueTokens, uniqueTokensCount, payoutTokens[i]);
             if (isNew) {
                 uniqueTokens[uniqueTokensCount] = payoutTokens[i];
@@ -173,23 +181,17 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
                     ++uniqueTokensCount;
                 }
             }
-            unchecked {
-                ++i;
-            }
         }
 
         uint256[] memory balancesBefore = new uint256[](uniqueTokensCount);
-        for (uint256 i; i < uniqueTokensCount; ) {
+        for (uint256 i; i < uniqueTokensCount; ++i) {
             balancesBefore[i] = IERC20(uniqueTokens[i]).balanceOf(thisAddress);
-            unchecked {
-                ++i;
-            }
         }
 
         IDistributor(_distributor).claim(users, _tokens, _amounts, _proofs);
 
         uint256 totalClaimed;
-        for (uint256 i; i < uniqueTokensCount; ) {
+        for (uint256 i; i < uniqueTokensCount; ++i) {
             address token = uniqueTokens[i];
             uint256 claimedAmount = IERC20(token).balanceOf(thisAddress) - balancesBefore[i];
 
@@ -203,10 +205,13 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
                 }
                 IERC20(token).safeTransfer(s_client, clientAmount);
 
-                emit P2pMorphoProxy__ClaimedMorphoMerkl(_distributor, token, claimedAmount, p2pAmount, clientAmount);
-            }
-            unchecked {
-                ++i;
+                emit P2pMorphoProxy__ClaimedMorphoMerkl(
+                    _distributor,
+                    token,
+                    claimedAmount,
+                    p2pAmount,
+                    clientAmount
+                );
             }
         }
 
@@ -241,12 +246,9 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         pure
         returns (uint256 index, bool isNew)
     {
-        for (uint256 i; i < _currentLength; ) {
+        for (uint256 i; i < _currentLength; ++i) {
             if (_tokens[i] == _token) {
                 return (i, false);
-            }
-            unchecked {
-                ++i;
             }
         }
         return (_currentLength, true);
