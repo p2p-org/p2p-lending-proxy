@@ -5,11 +5,13 @@ pragma solidity 0.8.30;
 
 import "../../../p2pYieldProxy/P2pYieldProxy.sol";
 import "../../../common/IMorphoBundler.sol";
+import "../../../common/IDistributor.sol";
 import "../../../@openzeppelin/contracts/interfaces/IERC4626.sol";
 import "../p2pMorphoProxyFactory/IP2pMorphoProxyFactory.sol";
 import "./IP2pMorphoProxy.sol";
 
 error P2pMorphoProxy__NothingClaimed();
+error P2pMorphoProxy__InvalidMerklClaimParams();
 error P2pMorphoProxy__NotP2pOperator(address _caller);
 error P2pMorphoProxy__ZeroAccruedRewards();
 error P2pMorphoProxy__ZeroVaultAddress();
@@ -120,6 +122,97 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         emit P2pMorphoProxy__ClaimedMorphoUrd(_distributor, _reward, newAssetAmount, p2pAmount, clientAmount);
     }
 
+    /// @inheritdoc IP2pMorphoProxy
+    function morphoMerklClaim(
+        address _distributor,
+        address[] calldata _tokens,
+        address[] calldata _payoutTokens,
+        uint256[] calldata _amounts,
+        bytes32[][] calldata _proofs
+    )
+        external
+        override
+        nonReentrant
+    {
+        uint256 claimsLength = _tokens.length;
+        if (
+            claimsLength == 0 || claimsLength != _amounts.length || claimsLength != _proofs.length
+                || (_payoutTokens.length != 0 && _payoutTokens.length != claimsLength)
+        ) {
+            revert P2pMorphoProxy__InvalidMerklClaimParams();
+        }
+
+        bool shouldCheckP2pOperator;
+        if (msg.sender != s_client) {
+            shouldCheckP2pOperator = true;
+        }
+        IP2pMorphoProxyFactory(address(i_factory)).checkMorphoUrdClaim(msg.sender, shouldCheckP2pOperator, _distributor);
+
+        address thisAddress = address(this);
+        address[] memory users = new address[](claimsLength);
+        for (uint256 i; i < claimsLength; ++i) {
+            users[i] = thisAddress;
+        }
+
+        address[] memory payoutTokens = new address[](claimsLength);
+        for (uint256 i; i < claimsLength; ++i) {
+            address payoutToken = _payoutTokens.length == 0 ? _tokens[i] : _payoutTokens[i];
+            if (payoutToken == address(0)) {
+                payoutToken = _tokens[i];
+            }
+            payoutTokens[i] = payoutToken;
+        }
+
+        address[] memory uniqueTokens = new address[](claimsLength);
+        uint256 uniqueTokensCount;
+        for (uint256 i; i < claimsLength; ) {
+            (, bool isNew) = _getTokenIndex(uniqueTokens, uniqueTokensCount, payoutTokens[i]);
+            if (isNew) {
+                uniqueTokens[uniqueTokensCount] = payoutTokens[i];
+                unchecked {
+                    ++uniqueTokensCount;
+                }
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        uint256[] memory balancesBefore = new uint256[](uniqueTokensCount);
+        for (uint256 i; i < uniqueTokensCount; ) {
+            balancesBefore[i] = IERC20(uniqueTokens[i]).balanceOf(thisAddress);
+            unchecked {
+                ++i;
+            }
+        }
+
+        IDistributor(_distributor).claim(users, _tokens, _amounts, _proofs);
+
+        uint256 totalClaimed;
+        for (uint256 i; i < uniqueTokensCount; ) {
+            address token = uniqueTokens[i];
+            uint256 claimedAmount = IERC20(token).balanceOf(thisAddress) - balancesBefore[i];
+
+            if (claimedAmount > 0) {
+                totalClaimed += claimedAmount;
+                uint256 p2pAmount = calculateP2pFeeAmount(claimedAmount);
+                uint256 clientAmount = claimedAmount - p2pAmount;
+
+                if (p2pAmount > 0) {
+                    IERC20(token).safeTransfer(i_p2pTreasury, p2pAmount);
+                }
+                IERC20(token).safeTransfer(s_client, clientAmount);
+
+                emit P2pMorphoProxy__ClaimedMorphoMerkl(_distributor, token, claimedAmount, p2pAmount, clientAmount);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+
+        require(totalClaimed > 0, P2pMorphoProxy__NothingClaimed());
+    }
+
     /// @inheritdoc IP2pYieldProxy
     function calculateAccruedRewards(address _vault, address _asset)
         public
@@ -143,4 +236,19 @@ contract P2pMorphoProxy is P2pYieldProxy, IP2pMorphoProxy {
         return interfaceId == type(IP2pMorphoProxy).interfaceId || super.supportsInterface(interfaceId);
     }
 
+    function _getTokenIndex(address[] memory _tokens, uint256 _currentLength, address _token)
+        private
+        pure
+        returns (uint256 index, bool isNew)
+    {
+        for (uint256 i; i < _currentLength; ) {
+            if (_tokens[i] == _token) {
+                return (i, false);
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return (_currentLength, true);
+    }
 }

@@ -10,6 +10,10 @@ interface IP2pMorphoProxy is IP2pYieldProxy {
     event P2pMorphoProxy__ClaimedMorphoUrd(
         address _distributor, address _reward, uint256 _totalAmount, uint256 _p2pAmount, uint256 _clientAmount
     );
+    /// @notice Emitted when Merkl rewards are claimed through the proxy
+    event P2pMorphoProxy__ClaimedMorphoMerkl(
+        address _distributor, address _reward, uint256 _totalAmount, uint256 _p2pAmount, uint256 _clientAmount
+    );
 
     /// @notice Deposits underlying assets into a Morpho ERC4626 vault
     /// @param _vault The ERC4626 vault that should receive the deposit
@@ -32,4 +36,18 @@ interface IP2pMorphoProxy is IP2pYieldProxy {
     /// @param _proof The Merkle proof that validates the claim
     function morphoUrdClaim(address _distributor, address _reward, uint256 _amount, bytes32[] calldata _proof)
         external;
+
+    /// @notice Claims Merkl rewards via the Angle distributor and distributes the proceeds
+    /// @param _distributor The Merkl distributor contract address
+    /// @param _tokens The ERC-20 reward tokens registered in the Merkle tree
+    /// @param _payoutTokens The actual ERC-20 tokens expected to be received (defaults to `_tokens` when zeroed)
+    /// @param _amounts The amounts to claim from the Merkl program
+    /// @param _proofs The Merkle proofs that validate the claims
+    function morphoMerklClaim(
+        address _distributor,
+        address[] calldata _tokens,
+        address[] calldata _payoutTokens,
+        uint256[] calldata _amounts,
+        bytes32[][] calldata _proofs
+    ) external;
 }
