@@ -22,27 +22,20 @@ contract Deploy is Script {
         address p2pOperator;
     }
 
-    struct DeploymentResult {
-        ProxyAdmin proxyAdmin;
-        AllowedCalldataChecker allowedCalldataCheckerImplementation;
-        TransparentUpgradeableProxy allowedCalldataCheckerProxy;
-        P2pSuperformProxyFactory factory;
-        P2pSuperformProxy referenceProxy;
-    }
-
     bytes32 private constant SALT_PROXY_ADMIN = keccak256("p2p.superform.proxy_admin.v2");
     bytes32 private constant SALT_ALLOWED_CALLDATA_CHECKER_IMPL =
         keccak256("p2p.superform.allowed_calldata_checker.impl.v2");
     bytes32 private constant SALT_ALLOWED_CALLDATA_CHECKER_PROXY =
         keccak256("p2p.superform.allowed_calldata_checker.proxy.v2");
     bytes32 private constant SALT_FACTORY = keccak256("p2p.superform.proxy_factory.v2");
+    address private constant CREATE2_DEPLOYER = 0x4e59b44847b379578588920cA78FbF26c0B4956C;
 
     address private constant DEFAULT_SUPERFORM_ROUTER = 0xa195608C2306A26f727d5199D5A382a4508308DA;
     address private constant DEFAULT_SUPER_POSITIONS = 0x01dF6fb6a28a89d6bFa53b2b3F20644AbF417678;
-    address private constant DEFAULT_P2P_TREASURY = 0x641ca805C75cC5D1ffa78C0181Aba1F77BD17904;
+    address private constant DEFAULT_P2P_TREASURY = 0x582d37737e870bffab8360F638148B26FD1BD86b;
     address private constant DEFAULT_REWARDS_DISTRIBUTOR = 0xce23bD7205bF2B543F6B4eeC00Add0C111FEFc3B;
 
-    function run() external returns (DeploymentResult memory deployment) {
+    function run() external {
         DeploymentConfig memory config = _loadConfig();
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
@@ -71,14 +64,6 @@ contract Deploy is Script {
         console2.log("AllowedCalldataChecker proxy:", address(allowedProxy));
         console2.log("P2pSuperformProxyFactory:", address(factory));
         console2.log("Reference P2pSuperformProxy:", address(referenceProxy));
-
-        deployment = DeploymentResult({
-            proxyAdmin: proxyAdmin,
-            allowedCalldataCheckerImplementation: allowedImplementation,
-            allowedCalldataCheckerProxy: allowedProxy,
-            factory: factory,
-            referenceProxy: referenceProxy
-        });
     }
 
     function _loadConfig() private view returns (DeploymentConfig memory config) {
@@ -95,7 +80,7 @@ contract Deploy is Script {
 
     function _deployProxyAdmin(address deployer) private returns (ProxyAdmin proxyAdmin) {
         bytes memory bytecode = type(ProxyAdmin).creationCode;
-        address predicted = vm.computeCreate2Address(SALT_PROXY_ADMIN, keccak256(bytecode), deployer);
+        address predicted = vm.computeCreate2Address(SALT_PROXY_ADMIN, keccak256(bytecode), CREATE2_DEPLOYER);
 
         if (predicted.code.length == 0) {
             proxyAdmin = new ProxyAdmin{salt: SALT_PROXY_ADMIN}();
@@ -109,7 +94,8 @@ contract Deploy is Script {
         returns (AllowedCalldataChecker allowedCalldataChecker)
     {
         bytes memory bytecode = type(AllowedCalldataChecker).creationCode;
-        address predicted = vm.computeCreate2Address(SALT_ALLOWED_CALLDATA_CHECKER_IMPL, keccak256(bytecode), deployer);
+        address predicted =
+            vm.computeCreate2Address(SALT_ALLOWED_CALLDATA_CHECKER_IMPL, keccak256(bytecode), CREATE2_DEPLOYER);
 
         if (predicted.code.length == 0) {
             allowedCalldataChecker = new AllowedCalldataChecker{salt: SALT_ALLOWED_CALLDATA_CHECKER_IMPL}();
@@ -128,7 +114,8 @@ contract Deploy is Script {
             type(TransparentUpgradeableProxy).creationCode,
             abi.encode(address(implementation), address(proxyAdmin), initData)
         );
-        address predicted = vm.computeCreate2Address(SALT_ALLOWED_CALLDATA_CHECKER_PROXY, keccak256(bytecode), deployer);
+        address predicted =
+            vm.computeCreate2Address(SALT_ALLOWED_CALLDATA_CHECKER_PROXY, keccak256(bytecode), CREATE2_DEPLOYER);
 
         if (predicted.code.length == 0) {
             proxy = new TransparentUpgradeableProxy{salt: SALT_ALLOWED_CALLDATA_CHECKER_PROXY}(
@@ -155,7 +142,7 @@ contract Deploy is Script {
                 config.rewardsDistributor
             )
         );
-        address predicted = vm.computeCreate2Address(SALT_FACTORY, keccak256(bytecode), deployer);
+        address predicted = vm.computeCreate2Address(SALT_FACTORY, keccak256(bytecode), CREATE2_DEPLOYER);
 
         if (predicted.code.length == 0) {
             factory = new P2pSuperformProxyFactory{salt: SALT_FACTORY}(
