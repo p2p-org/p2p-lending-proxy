@@ -127,11 +127,11 @@ abstract contract P2pYieldProxy is Initializable, ReentrancyGuardUpgradeable, ER
         __ReentrancyGuard_init();
 
         require(
-            _clientBasisPointsOfDeposit <= 10_000,
+            _clientBasisPointsOfDeposit <= 10_000 && _clientBasisPointsOfDeposit > 0,
             P2pYieldProxy__InvalidClientBasisPointsOfDeposit(_clientBasisPointsOfDeposit)
         );
         require(
-            _clientBasisPointsOfProfit <= 10_000,
+            _clientBasisPointsOfProfit <= 10_000 && _clientBasisPointsOfProfit > 0,
             P2pYieldProxy__InvalidClientBasisPointsOfProfit(_clientBasisPointsOfProfit)
         );
 

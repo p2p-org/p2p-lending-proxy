@@ -114,57 +114,11 @@ contract BaseMorphoUSDC is Test {
         _doWithdraw(3);
     }
 
-    function test_depositWithZeroDepositBpsDoesNotRevertAndUsesRawAmount() public {
-        deal(USDC, clientAddress, 10000e18);
-
-        address zeroBpsProxy =
-            factory.predictP2pYieldProxyAddress(clientAddress, 0, ClientBasisPointsOfProfit);
-
-        bytes memory p2pSignerSignature =
-            _getP2pSignerSignature(clientAddress, 0, ClientBasisPointsOfProfit, SigDeadline);
-
-        vm.startPrank(clientAddress);
-        if (IERC20(USDC).allowance(clientAddress, zeroBpsProxy) == 0) {
-            IERC20(USDC).safeApprove(zeroBpsProxy, type(uint256).max);
-        }
-
-        LiqRequest memory liqRequest = LiqRequest({
-            txData: "",
-            token: USDC,
-            interimToken: address(0),
-            bridgeId: 1,
-            liqDstChainId: 0,
-            nativeAmount: 0
-        });
-        SingleVaultSFData memory superformData = SingleVaultSFData({
-            superformId: SuperformId,
-            amount: DepositAmount,
-            outputAmount: SharesAmount,
-            maxSlippage: 50,
-            liqRequest: liqRequest,
-            permit2data: "",
-            hasDstSwap: false,
-            retain4626: false,
-            receiverAddress: zeroBpsProxy,
-            receiverAddressSP: zeroBpsProxy,
-            extraFormData: ""
-        });
-        SingleDirectSingleVaultStateReq memory req = SingleDirectSingleVaultStateReq({superformData: superformData});
-        bytes memory superformCalldata = abi.encodeCall(IBaseRouter.singleDirectSingleVaultDeposit, (req));
-
-        // Prevent upstream router revert due to allowance expectations; we only assert proxy math here.
-        vm.mockCall(
-            SuperformRouter,
-            abi.encodeWithSelector(IBaseRouter.singleDirectSingleVaultDeposit.selector),
-            bytes("")
+    function test_depositWithZeroDepositBpsRevertsAtPredict() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(P2pYieldProxy__InvalidClientBasisPointsOfDeposit.selector, uint48(0))
         );
-
-        factory.deposit(superformCalldata, 0, ClientBasisPointsOfProfit, SigDeadline, p2pSignerSignature);
-        vm.stopPrank();
-
-        IP2pYieldProxy proxy = IP2pYieldProxy(zeroBpsProxy);
-        assertEq(proxy.getClientBasisPointsOfDeposit(), 0);
-        assertEq(proxy.calculateMinAmountToApproveForDeposit(DepositAmount), DepositAmount);
+        factory.predictP2pYieldProxyAddress(clientAddress, 0, ClientBasisPointsOfProfit);
     }
 
     function _getVaultAddress() private pure returns (address) {

@@ -185,6 +185,14 @@ abstract contract P2pYieldProxyFactory is P2pOperator2Step, ERC165, IP2pYieldPro
         uint48 _clientBasisPointsOfDeposit,
         uint48 _clientBasisPointsOfProfit
     ) public view returns (address) {
+        require(
+            _clientBasisPointsOfDeposit > 0 && _clientBasisPointsOfDeposit <= 10_000,
+            P2pYieldProxy__InvalidClientBasisPointsOfDeposit(_clientBasisPointsOfDeposit)
+        );
+        require(
+            _clientBasisPointsOfProfit > 0 && _clientBasisPointsOfProfit <= 10_000,
+            P2pYieldProxy__InvalidClientBasisPointsOfProfit(_clientBasisPointsOfProfit)
+        );
         return Clones.predictDeterministicAddress(
             address(i_referenceP2pYieldProxy),
             _getSalt(_client, _clientBasisPointsOfDeposit, _clientBasisPointsOfProfit)
