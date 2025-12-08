@@ -40,7 +40,7 @@ This script will:
 
 #### Superform Deposit flow
 
-Look at [function _doDeposit()](test/OptimismUSDT.t.sol#L430) for a reference implementation of the flow.
+Look at [function _doDeposit()](test/OptimismUSDT.t.sol#L430) for a reference implementation of the flow. In production you should obtain Superform deposit calldata via the Superform API (`deposit/calculate` + `deposit/start`) for the client’s proxy.
 
 1. Website User (called Client in contracts) calls Backend with its (User's) Ethereum address and some Merchant info.
 
@@ -109,7 +109,7 @@ Look at [function _doDeposit()](test/OptimismUSDT.t.sol#L430) for a reference im
 
 #### Superform Withdrawal flow
 
-Look at [function _doWithdraw()](test/OptimismUSDT.t.sol#L486) for a reference implementation of the flow.
+Look at [function _doWithdraw()](test/OptimismUSDT.t.sol#L486) for a reference implementation of the flow. In production you should obtain Superform withdraw calldata via the Superform API (`withdraw/calculate` + `withdraw/start`).
 
 1. Website User calls P2P.org's backend for Superform withdrawal calldata.
 
