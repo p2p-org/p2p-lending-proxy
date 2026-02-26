@@ -3,9 +3,7 @@
 
 pragma solidity 0.8.30;
 
-/// @dev 256 bit struct
-/// @member Amount
-/// @member lastFeeCollectionTime Last Fee Collection Time
+/// @dev 256-bit packed struct for withdrawal accounting.
 struct Withdrawn {
     uint208 amount;
     uint48 lastFeeCollectionTime;

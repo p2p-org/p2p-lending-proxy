@@ -3,22 +3,19 @@
 
 pragma solidity 0.8.30;
 
-import "../lib/forge-std/src/Vm.sol";
 import "../src/@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
-import "../src/adapters/resolv/p2pResolvProxyFactory/P2pResolvProxyFactory.sol";
+import "../src/@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import "../src/adapters/aave/p2pAaveProxyFactory/P2pAaveProxyFactory.sol";
+import "../src/common/AllowedCalldataChecker.sol";
+import "../lib/forge-std/src/Vm.sol";
 import {Script} from "forge-std/Script.sol";
 
 contract Deploy is Script {
-    address constant USR = 0x66a1E37c9b0eAddca17d3662D6c05F4DECf3e110;
-    address constant stUSR = 0x6c8984bc7DBBeDAf4F6b2FD766f16eBB7d10AAb4;
-    address constant RESOLV = 0x259338656198eC7A76c729514D3CB45Dfbf768A1;
-    address constant stRESOLV = 0xFE4BCE4b3949c35fB17691D8b03c3caDBE2E5E23;
-    address constant P2pTreasury = 0x582d37737e870bffab8360F638148B26FD1BD86b;
+    address constant P2P_TREASURY = 0x6Bb8b45a1C6eA816B70d76f83f7dC4f0f87365Ff;
+    address constant AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
+    address constant AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
 
-    function run()
-        external
-        returns (P2pResolvProxyFactory factory, P2pResolvProxy proxy)
-    {
+    function run() external returns (P2pAaveProxyFactory factory) {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         Vm.Wallet memory wallet = vm.createWallet(deployerKey);
 
@@ -26,24 +23,16 @@ contract Deploy is Script {
         AllowedCalldataChecker implementation = new AllowedCalldataChecker();
         ProxyAdmin admin = new ProxyAdmin();
         bytes memory initData = abi.encodeWithSelector(AllowedCalldataChecker.initialize.selector);
-        TransparentUpgradeableProxy tup = new TransparentUpgradeableProxy(
-            address(implementation),
-            address(admin),
-            initData
-        );
-        factory = new P2pResolvProxyFactory(
+        TransparentUpgradeableProxy checkerProxy =
+            new TransparentUpgradeableProxy(address(implementation), address(admin), initData);
+
+        factory = new P2pAaveProxyFactory(
             wallet.addr,
-            P2pTreasury,
-            stUSR,
-            USR,
-            stRESOLV,
-            RESOLV,
-            address(tup)
+            P2P_TREASURY,
+            address(checkerProxy),
+            AAVE_POOL,
+            AAVE_DATA_PROVIDER
         );
         vm.stopBroadcast();
-
-        proxy = P2pResolvProxy(factory.getReferenceP2pYieldProxy());
-
-        return (factory, proxy);
     }
 }

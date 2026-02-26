@@ -13,17 +13,12 @@ error AllowedCalldataChecker__NoAllowedCalldata();
 /// @author P2P Validator <info@p2p.org>
 /// @notice Upgradable contract for checking if a calldata is allowed
 contract AllowedCalldataChecker is IAllowedCalldataChecker, Initializable {
-
     function initialize() public initializer {
         // do nothing in this implementation
     }
 
     /// @inheritdoc IAllowedCalldataChecker
-    function checkCalldata(
-        address,
-        bytes4,
-        bytes calldata
-    ) public pure {
+    function checkCalldata(address, bytes4, bytes calldata) public pure override {
         revert AllowedCalldataChecker__NoAllowedCalldata();
     }
 }

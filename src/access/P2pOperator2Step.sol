@@ -27,7 +27,9 @@ import {P2pOperator} from "./P2pOperator.sol";
 abstract contract P2pOperator2Step is P2pOperator {
     address private s_pendingP2pOperator;
 
-    event P2pOperator2Step__P2pOperatorTransferStarted(address indexed _previousP2pOperator, address indexed _newP2pOperator);
+    event P2pOperator2Step__P2pOperatorTransferStarted(
+        address indexed _previousP2pOperator, address indexed _newP2pOperator
+    );
 
     /**
      * @dev Returns the address of the pending P2pOperator.

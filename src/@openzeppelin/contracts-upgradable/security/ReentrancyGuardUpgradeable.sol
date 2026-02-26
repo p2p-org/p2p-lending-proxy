@@ -2,6 +2,7 @@
 // OpenZeppelin Contracts (last updated v4.9.0) (security/ReentrancyGuard.sol)
 
 pragma solidity 0.8.30;
+
 import {Initializable} from "../proxy/utils/Initializable.sol";
 
 /**
