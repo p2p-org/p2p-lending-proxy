@@ -3,51 +3,27 @@
 
 pragma solidity 0.8.27;
 
+import "../@openzeppelin/contracts-upgradable/proxy/utils/Initializable.sol";
 import "./IAllowedCalldataChecker.sol";
-import "./P2pStructs.sol";
 
-/// @dev Error for when the calldata is too short
-error AllowedCalldataChecker__DataTooShort();
+/// @dev No extra calls are allowed for now. AllowedCalldataChecker can be upgraded in the future.
+error AllowedCalldataChecker__NoAllowedCalldata();
 
 /// @title AllowedCalldataChecker
 /// @author P2P Validator <info@p2p.org>
-/// @notice Abstract contract for checking if a calldata is allowed
-abstract contract AllowedCalldataChecker is IAllowedCalldataChecker {
+/// @notice Upgradable contract for checking if a calldata is allowed
+contract AllowedCalldataChecker is IAllowedCalldataChecker, Initializable {
 
-    /// @dev Modifier for checking if a calldata is allowed
-    /// @param _yieldProtocolAddress The address of the yield protocol
-    /// @param _yieldProtocolCalldata The calldata (encoded signature + arguments) to be passed to the yield protocol
-    modifier calldataShouldBeAllowed(
-        address _yieldProtocolAddress,
-        bytes calldata _yieldProtocolCalldata
-    ) {
-        // validate yieldProtocolCalldata for yieldProtocolAddress
-        bytes4 selector = _getFunctionSelector(_yieldProtocolCalldata);
-        checkCalldata(
-            _yieldProtocolAddress,
-            selector,
-            _yieldProtocolCalldata[4:]
-        );
-        _;
+    function initialize() public initializer {
+        // do nothing in this implementation
     }
 
-    /// @notice Returns function selector (first 4 bytes of data)
-    /// @param _data calldata (encoded signature + arguments)
-    /// @return functionSelector function selector
-    function _getFunctionSelector(
-        bytes calldata _data
-    ) private pure returns (bytes4 functionSelector) {
-        require (_data.length >= 4, AllowedCalldataChecker__DataTooShort());
-        return bytes4(_data[:4]);
-    }
-
-    /// @notice Checks if the calldata is allowed
-    /// @param _target The address of the yield protocol
-    /// @param _selector The selector of the function
-    /// @param _calldataAfterSelector The calldata after the selector
+    /// @inheritdoc IAllowedCalldataChecker
     function checkCalldata(
-        address _target,
-        bytes4 _selector,
-        bytes calldata _calldataAfterSelector
-    ) public virtual view;
+        address,
+        bytes4,
+        bytes calldata
+    ) public pure {
+        revert AllowedCalldataChecker__NoAllowedCalldata();
+    }
 }

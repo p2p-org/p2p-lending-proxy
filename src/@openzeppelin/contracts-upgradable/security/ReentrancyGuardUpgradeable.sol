@@ -2,6 +2,7 @@
 // OpenZeppelin Contracts (last updated v4.9.0) (security/ReentrancyGuard.sol)
 
 pragma solidity 0.8.27;
+import {Initializable} from "../proxy/utils/Initializable.sol";
 
 /**
  * @dev Contract module that helps prevent reentrant calls to a function.
@@ -19,7 +20,7 @@ pragma solidity 0.8.27;
  * to protect against it, check out our blog post
  * https://blog.openzeppelin.com/reentrancy-after-istanbul/[Reentrancy After Istanbul].
  */
-abstract contract ReentrancyGuard {
+abstract contract ReentrancyGuardUpgradeable is Initializable {
     // Booleans are more expensive than uint256 or any type that takes up a full
     // word because each write operation emits an extra SLOAD to first read the
     // slot's contents, replace the bits taken up by the boolean, and then write
@@ -36,7 +37,11 @@ abstract contract ReentrancyGuard {
 
     uint256 private _status;
 
-    constructor() {
+    function __ReentrancyGuard_init() internal onlyInitializing {
+        __ReentrancyGuard_init_unchained();
+    }
+
+    function __ReentrancyGuard_init_unchained() internal onlyInitializing {
         _status = _NOT_ENTERED;
     }
 
@@ -74,4 +79,11 @@ abstract contract ReentrancyGuard {
     function _reentrancyGuardEntered() internal view returns (bool) {
         return _status == _ENTERED;
     }
+
+    /**
+     * @dev This empty reserved space is put in place to allow future versions to add new
+     * variables without shifting down storage in the inheritance chain.
+     * See https://docs.openzeppelin.com/contracts/4.x/upgradeable#storage_gaps
+     */
+    uint256[49] private __gap;
 }
