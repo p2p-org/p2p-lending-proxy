@@ -4,133 +4,89 @@
 pragma solidity 0.8.27;
 
 import "../@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import "../@permit2/interfaces/IAllowanceTransfer.sol";
-import "../common/IAllowedCalldataChecker.sol";
-import "../common/P2pStructs.sol";
 
 /// @dev External interface of P2pYieldProxyFactory
-interface IP2pYieldProxyFactory is IAllowedCalldataChecker, IERC165 {
-
+interface IP2pYieldProxyFactory is IERC165 {
     /// @dev Emitted when the P2pSigner is transferred
-    event P2pYieldProxyFactory__P2pSignerTransferred(
-        address indexed _previousP2pSigner,
-        address indexed _newP2pSigner
-    );
-
-    /// @dev Emitted when the calldata rules are set
-    event P2pYieldProxyFactory__CalldataRulesSet(
-        address indexed _contract,
-        bytes4 indexed _selector,
-        P2pStructs.Rule[] _rules
-    );
-
-    /// @dev Emitted when the calldata rules are removed
-    event P2pYieldProxyFactory__CalldataRulesRemoved(
-        address indexed _contract,
-        bytes4 indexed _selector
-    );
+    event P2pYieldProxyFactory__P2pSignerTransferred(address indexed _previousP2pSigner, address indexed _newP2pSigner);
 
     /// @dev Emitted when the deposit is made
     event P2pYieldProxyFactory__Deposited(
-        address indexed _client,
-        uint96 indexed _clientBasisPoints
+        address indexed _client, uint48 indexed _clientBasisPointsOfDeposit, uint48 indexed _clientBasisPointsOfProfit
     );
 
-    /// @dev Deposits the yield protocol
-    /// @param _permitSingleForP2pYieldProxy The permit single for P2pYieldProxy
-    /// @param _permit2SignatureForP2pYieldProxy The permit2 signature for P2pYieldProxy
-    /// @param _clientBasisPoints The client basis points
-    /// @param _p2pSignerSigDeadline The P2pSigner signature deadline
-    /// @param _p2pSignerSignature The P2pSigner signature
-    /// @return p2pYieldProxyAddress The client's P2pYieldProxy instance address
-    function deposit(
-        IAllowanceTransfer.PermitSingle memory _permitSingleForP2pYieldProxy,
-        bytes calldata _permit2SignatureForP2pYieldProxy,
+    /// @dev Emitted when the a new proxy is created
+    event P2pYieldProxyFactory__ProxyCreated(
+        address _proxy, address _client, uint48 _clientBasisPointsOfDeposit, uint48 _clientBasisPointsOfProfit
+    );
 
-        uint96 _clientBasisPoints,
+    /// @notice Initiates a deposit through a client specific P2pYieldProxy instance
+    /// @param _yieldProtocolCalldata Calldata that executes the deposit on the underlying yield protocol
+    /// @param _clientBasisPointsOfDeposit Client share of the deposited principal in basis points (max 10_000)
+    /// @param _clientBasisPointsOfProfit Client share of the generated profit in basis points (max 10_000)
+    /// @param _p2pSignerSigDeadline Expiration timestamp for the P2pSigner signature
+    /// @param _p2pSignerSignature Signature issued by the P2pSigner authorising the deposit parameters
+    /// @return p2pYieldProxyAddress The address of the client specific P2pYieldProxy used for the deposit
+    function deposit(
+        bytes calldata _yieldProtocolCalldata,
+        uint48 _clientBasisPointsOfDeposit,
+        uint48 _clientBasisPointsOfProfit,
         uint256 _p2pSignerSigDeadline,
         bytes calldata _p2pSignerSignature
-    )
-    external
-    returns (address p2pYieldProxyAddress);
+    ) external payable returns (address p2pYieldProxyAddress);
 
-    /// @dev Sets the calldata rules
-    /// @param _contract The contract address
-    /// @param _selector The selector
-    /// @param _rules The rules
-    function setCalldataRules(
-        address _contract,
-        bytes4 _selector,
-        P2pStructs.Rule[] calldata _rules
-    ) external;
-
-    /// @dev Removes the calldata rules
-    /// @param _contract The contract address
-    /// @param _selector The selector
-    function removeCalldataRules(
-        address _contract,
-        bytes4 _selector
-    ) external;
-
-    /// @dev Computes the address of a P2pYieldProxy created by `_createP2pYieldProxy` function
-    /// @dev P2pYieldProxy instances are guaranteed to have the same address if _feeDistributorInstance is the same
-    /// @param _client The address of client
-    /// @return address The address of the P2pYieldProxy instance
+    /// @notice Computes the deterministic address of a P2pYieldProxy for a client and fee configuration
+    /// @param _client Client wallet address
+    /// @param _clientBasisPointsOfDeposit Client share of the deposited principal in basis points (max 10_000)
+    /// @param _clientBasisPointsOfProfit Client share of the generated profit in basis points (max 10_000)
+    /// @return Address of the P2pYieldProxy instance that would be deployed for the provided parameters
     function predictP2pYieldProxyAddress(
         address _client,
-        uint96 _clientBasisPoints
+        uint48 _clientBasisPointsOfDeposit,
+        uint48 _clientBasisPointsOfProfit
     ) external view returns (address);
 
-    /// @dev Transfers the P2pSigner
-    /// @param _newP2pSigner The new P2pSigner address
-    function transferP2pSigner(
-        address _newP2pSigner
-    ) external;
+    /// @notice Updates the P2pSigner account that authorises deposits
+    /// @param _newP2pSigner Address of the new P2pSigner
+    function transferP2pSigner(address _newP2pSigner) external;
 
-    /// @dev Returns a template set by P2P to be used for new P2pYieldProxy instances
-    /// @return a template set by P2P to be used for new P2pYieldProxy instances
+    /// @notice Transfers P2pOperator role control to a new account using the two step flow
+    /// @param _newP2pOperator Address that will become the new P2pOperator upon acceptance
+    function transferP2pOperator(address _newP2pOperator) external;
+
+    /// @notice Finalises a pending two step P2pOperator transfer
+    function acceptP2pOperator() external;
+
+    /// @notice Returns the address that is set to become the next P2pOperator
+    /// @return pendingP2pOperator Address of the pending P2pOperator
+    function getPendingP2pOperator() external view returns (address pendingP2pOperator);
+
+    /// @notice Returns the reference implementation used for cloning new P2pYieldProxy instances
+    /// @return Address of the reference P2pYieldProxy implementation
     function getReferenceP2pYieldProxy() external view returns (address);
 
-    /// @dev Gets the hash for the P2pSigner
-    /// @param _client The address of client
-    /// @param _clientBasisPoints The client basis points
-    /// @param _p2pSignerSigDeadline The P2pSigner signature deadline
-    /// @return The hash for the P2pSigner
+    /// @notice Computes the message hash that must be signed by the P2pSigner for a deposit authorisation
+    /// @param _client Client wallet initiating the deposit
+    /// @param _clientBasisPointsOfDeposit Client share of the deposited principal in basis points (max 10_000)
+    /// @param _clientBasisPointsOfProfit Client share of the generated profit in basis points (max 10_000)
+    /// @param _p2pSignerSigDeadline Expiration timestamp for the signature
+    /// @return hash Message hash to be signed by the P2pSigner
     function getHashForP2pSigner(
         address _client,
-        uint96 _clientBasisPoints,
+        uint48 _clientBasisPointsOfDeposit,
+        uint48 _clientBasisPointsOfProfit,
         uint256 _p2pSignerSigDeadline
     ) external view returns (bytes32);
 
-    /// @dev Gets the permit2 hash typed data
-    /// @param _permitSingle The permit single
-    /// @return The permit2 hash typed data
-    function getPermit2HashTypedData(IAllowanceTransfer.PermitSingle calldata _permitSingle) external view returns (bytes32);
-
-    /// @dev Gets the permit2 hash typed data
-    /// @param _permitHash The permit hash
-    /// @return The permit2 hash typed data
-    function getPermit2HashTypedData(bytes32 _permitHash) external view returns (bytes32);
-
-    /// @dev Gets the permit hash
-    /// @param _permitSingle The permit single
-    /// @return The permit hash
-    function getPermitHash(IAllowanceTransfer.PermitSingle calldata _permitSingle) external view returns (bytes32);
-
-    /// @dev Gets the calldata rules
-    /// @param _contract The contract address
-    /// @param _selector The selector
-    /// @return The calldata rules
-    function getCalldataRules(
-        address _contract,
-        bytes4 _selector
-    ) external view returns (P2pStructs.Rule[] memory);
-
-    /// @dev Gets the P2pSigner
-    /// @return The P2pSigner address
+    /// @notice Returns the current P2pSigner address authorised to validate deposits
+    /// @return Address of the P2pSigner
     function getP2pSigner() external view returns (address);
 
-    /// @dev Gets all proxies
-    /// @return The proxy addresses
+    /// @notice Returns the current P2pOperator address responsible for administrative actions
+    /// @return Address of the P2pOperator
+    function getP2pOperator() external view returns (address);
+
+    /// @notice Returns the list of all P2pYieldProxy instances created by the factory
+    /// @return Array of deployed P2pYieldProxy addresses
     function getAllProxies() external view returns (address[] memory);
 }

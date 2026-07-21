@@ -3,87 +3,62 @@
 
 pragma solidity 0.8.27;
 
-import "../@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "../@openzeppelin/contracts-upgradable/security/ReentrancyGuardUpgradeable.sol";
 import "../@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../@openzeppelin/contracts/utils/Address.sol";
 import "../@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import "../@openzeppelin/contracts/utils/introspection/ERC165Checker.sol";
-import "../@permit2/interfaces/IAllowanceTransfer.sol";
-import "../@permit2/libraries/Permit2Lib.sol";
-import "../common/AllowedCalldataChecker.sol";
-import "../common/P2pStructs.sol";
+import "../common/IAllowedCalldataChecker.sol";
 import "../p2pYieldProxyFactory/IP2pYieldProxyFactory.sol";
+import "../structs/P2pStructs.sol";
 import "./IP2pYieldProxy.sol";
 import {IERC4626} from "../@openzeppelin/contracts/interfaces/IERC4626.sol";
 
-/// @dev Error when the asset address is zero   
 error P2pYieldProxy__ZeroAddressAsset();
-
-/// @dev Error when the asset amount is zero
-error P2pYieldProxy__ZeroAssetAmount();
-
-/// @dev Error when the shares amount is zero
-error P2pYieldProxy__ZeroSharesAmount();
-
-/// @dev Error when the client basis points are invalid
-error P2pYieldProxy__InvalidClientBasisPoints(uint96 _clientBasisPoints);
-
-/// @dev Error when the factory is not the caller
-error P2pYieldProxy__NotFactory(address _factory);
-
-error P2pYieldProxy__DifferentActuallyDepositedAmount(
-    uint256 _requestedAmount,
-    uint256 _actualAmount
-);
-
-/// @dev Error when the factory is not the caller
-/// @param _msgSender sender address.
-/// @param _actualFactory the actual factory address.
-error P2pYieldProxy__NotFactoryCalled(
-    address _msgSender,
-    IP2pYieldProxyFactory _actualFactory
-);
-
-/// @dev Error when the client is not the caller
-/// @param _msgSender sender address.
-/// @param _actualClient the actual client address.
-error P2pYieldProxy__NotClientCalled(
-    address _msgSender,
-    address _actualClient
-);
+error P2pYieldProxy__ZeroAssetAmount(address _asset);
+error P2pYieldProxy__InvalidClientBasisPointsOfDeposit(uint48 _clientBasisPointsOfDeposit);
+error P2pYieldProxy__InvalidClientBasisPointsOfProfit(uint48 _clientBasisPointsOfProfit);
+error P2pYieldProxy__DifferentActuallyDepositedAmount(address _asset, uint256 _requestedAmount, uint256 _actualAmount);
+error P2pYieldProxy__NotFactoryCalled(address _msgSender, IP2pYieldProxyFactory _actualFactory);
+error P2pYieldProxy__NotClientCalled(address _msgSender, address _actualClient);
+error P2pYieldProxy__ZeroAddressFactory();
+error P2pYieldProxy__ZeroAddressP2pTreasury();
+error P2pYieldProxy__ZeroAddressYieldProtocolAddress();
+error P2pYieldProxy__ZeroAllowedCalldataChecker();
+error P2pYieldProxy__DataTooShort();
+error P2pYieldProxy__NotP2pOperator(address _msgSender);
 
 /// @title P2pYieldProxy
 /// @notice P2pYieldProxy is a contract that allows a client to deposit and withdraw assets from a yield protocol.
-abstract contract P2pYieldProxy is
-    AllowedCalldataChecker,
-    P2pStructs,
-    ReentrancyGuard,
-    ERC165,
-    IP2pYieldProxy {
-
+abstract contract P2pYieldProxy is Initializable, ReentrancyGuardUpgradeable, ERC165, IP2pYieldProxy {
     using SafeERC20 for IERC20;
     using Address for address;
+
+    address constant NATIVE = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     /// @dev P2pYieldProxyFactory
     IP2pYieldProxyFactory internal immutable i_factory;
 
     /// @dev P2pTreasury
-    address internal immutable i_p2pTreasury;
+    address payable internal immutable i_p2pTreasury;
 
     /// @dev Yield protocol address
     address internal immutable i_yieldProtocolAddress;
 
+    IAllowedCalldataChecker internal immutable i_allowedCalldataChecker;
+
     /// @dev Client
-    address internal s_client;
+    address payable internal s_client;
 
-    /// @dev Client basis points
-    uint96 internal s_clientBasisPoints;
+    /// @dev Client basis points of deposit
+    uint48 internal s_clientBasisPointsOfDeposit;
 
-    // asset => amount
-    mapping(address => uint256) internal s_totalDeposited;
+    /// @dev Client basis points of profit
+    uint48 internal s_clientBasisPointsOfProfit;
 
-    // asset => amount
-    mapping(address => uint256) internal s_totalWithdrawn;
+    mapping(uint256 vaultId => mapping(address asset => uint256 amount)) internal s_totalDeposited;
+
+    mapping(uint256 vaultId => mapping(address asset => Withdrawn withdrawn)) internal s_totalWithdrawn;
 
     /// @notice If caller is not factory, revert
     modifier onlyFactory() {
@@ -101,203 +76,237 @@ abstract contract P2pYieldProxy is
         _;
     }
 
+    modifier onlyP2pOperator() {
+        address p2pOperator = i_factory.getP2pOperator();
+        if (msg.sender != p2pOperator) {
+            revert P2pYieldProxy__NotP2pOperator(msg.sender);
+        }
+        _;
+    }
+
+    /// @dev Modifier for checking if a calldata is allowed
+    /// @param _yieldProtocolAddress The address of the yield protocol
+    /// @param _yieldProtocolCalldata The calldata (encoded signature + arguments) to be passed to the yield protocol
+    modifier calldataShouldBeAllowed(address _yieldProtocolAddress, bytes calldata _yieldProtocolCalldata) {
+        // validate yieldProtocolCalldata for yieldProtocolAddress
+        bytes4 selector = _getFunctionSelector(_yieldProtocolCalldata);
+        i_allowedCalldataChecker.checkCalldata(_yieldProtocolAddress, selector, _yieldProtocolCalldata[4:]);
+        _;
+    }
+
     /// @notice Constructor for P2pYieldProxy
     /// @param _factory The factory address
     /// @param _p2pTreasury The P2pTreasury address
     /// @param _yieldProtocolAddress Yield protocol address
+    /// @param _allowedCalldataChecker AllowedCalldataChecker
     constructor(
         address _factory,
         address _p2pTreasury,
-        address _yieldProtocolAddress
+        address _yieldProtocolAddress,
+        address _allowedCalldataChecker
     ) {
+        require(_factory != address(0), P2pYieldProxy__ZeroAddressFactory());
         i_factory = IP2pYieldProxyFactory(_factory);
-        i_p2pTreasury = _p2pTreasury;
+
+        require(_p2pTreasury != address(0), P2pYieldProxy__ZeroAddressP2pTreasury());
+        i_p2pTreasury = payable(_p2pTreasury);
+
+        require(_yieldProtocolAddress != address(0), P2pYieldProxy__ZeroAddressYieldProtocolAddress());
         i_yieldProtocolAddress = _yieldProtocolAddress;
+
+        require(_allowedCalldataChecker != address(0), P2pYieldProxy__ZeroAllowedCalldataChecker());
+        i_allowedCalldataChecker = IAllowedCalldataChecker(_allowedCalldataChecker);
     }
 
     /// @inheritdoc IP2pYieldProxy
-    function initialize(
-        address _client,
-        uint96 _clientBasisPoints
-    )
-    external
-    onlyFactory
+    function initialize(address _client, uint48 _clientBasisPointsOfDeposit, uint48 _clientBasisPointsOfProfit)
+        external
+        initializer
+        onlyFactory
     {
+        __ReentrancyGuard_init();
+
         require(
-            _clientBasisPoints > 0 && _clientBasisPoints <= 10_000,
-            P2pYieldProxy__InvalidClientBasisPoints(_clientBasisPoints)
+            _clientBasisPointsOfDeposit <= 10_000,
+            P2pYieldProxy__InvalidClientBasisPointsOfDeposit(_clientBasisPointsOfDeposit)
+        );
+        require(
+            _clientBasisPointsOfProfit <= 10_000,
+            P2pYieldProxy__InvalidClientBasisPointsOfProfit(_clientBasisPointsOfProfit)
         );
 
-        s_client = _client;
-        s_clientBasisPoints = _clientBasisPoints;
+        s_client = payable(_client);
+        s_clientBasisPointsOfDeposit = _clientBasisPointsOfDeposit;
+        s_clientBasisPointsOfProfit = _clientBasisPointsOfProfit;
 
         emit P2pYieldProxy__Initialized();
     }
 
+    function deposit(bytes calldata _yieldProtocolDepositCalldata) external payable virtual;
+
     /// @notice Deposit assets into yield protocol
+    /// @param _vaultId vault ID
+    /// @param _asset ERC-20 asset address (use NATIVE sentinel for ETH)
+    /// @param _amount Amount of ERC-20 asset to transfer from client (ignored for native deposits)
     /// @param _yieldProtocolDepositCalldata calldata for deposit function of yield protocol
-    /// @param _permitSingleForP2pYieldProxy PermitSingle for P2pYieldProxy to pull assets from client
-    /// @param _permit2SignatureForP2pYieldProxy signature of PermitSingle for P2pYieldProxy
-    /// @param _usePermit2 whether should use Permit2 or native ERC-20 transferFrom
+    /// @param _isNative whether ETH (native currency) is being deposited
     function _deposit(
+        uint256 _vaultId,
+        address _asset,
+        uint256 _amount,
         bytes memory _yieldProtocolDepositCalldata,
-        IAllowanceTransfer.PermitSingle calldata _permitSingleForP2pYieldProxy,
-        bytes calldata _permit2SignatureForP2pYieldProxy,
-        bool _usePermit2
-    )
-    internal
-    onlyFactory
-    {
-        address asset = _permitSingleForP2pYieldProxy.details.token;
-        require (asset != address(0), P2pYieldProxy__ZeroAddressAsset());
+        bool _isNative
+    ) internal onlyFactory {
+        uint256 nativeAmountToDepositAfterFee = msg.value * s_clientBasisPointsOfDeposit / 10_000;
 
-        uint160 amount = _permitSingleForP2pYieldProxy.details.amount;
-        require (amount > 0, P2pYieldProxy__ZeroAssetAmount());
-
-        address client = s_client;
-
-        // transfer tokens into Proxy
-        try Permit2Lib.PERMIT2.permit(
-            client,
-            _permitSingleForP2pYieldProxy,
-            _permit2SignatureForP2pYieldProxy
-        ) {}
-        catch {} // prevent unintended reverts due to invalidated nonce
-
-        uint256 assetAmountBefore = IERC20(asset).balanceOf(address(this));
-
-        Permit2Lib.PERMIT2.transferFrom(
-            client,
-            address(this),
-            amount,
-            asset
-        );
-
-        uint256 assetAmountAfter = IERC20(asset).balanceOf(address(this));
-        uint256 actualAmount = assetAmountAfter - assetAmountBefore;
-
-        require (
-            actualAmount == amount,
-            P2pYieldProxy__DifferentActuallyDepositedAmount(amount, actualAmount)
-        ); // no support for fee-on-transfer or rebasing tokens
-
-        uint256 totalDepositedAfter = s_totalDeposited[asset] + actualAmount;
-        s_totalDeposited[asset] = totalDepositedAfter;
-        emit P2pYieldProxy__Deposited(
-            i_yieldProtocolAddress,
-            asset,
-            actualAmount,
-            totalDepositedAfter
-        );
-
-        if (_usePermit2) {
-            IERC20(asset).safeIncreaseAllowance(
-                address(Permit2Lib.PERMIT2),
-                actualAmount
-            );
+        if (_isNative) {
+            uint256 totalDepositedAfter = s_totalDeposited[_vaultId][NATIVE] + nativeAmountToDepositAfterFee;
+            s_totalDeposited[_vaultId][NATIVE] = totalDepositedAfter;
+            emit P2pYieldProxy__Deposited(_vaultId, NATIVE, nativeAmountToDepositAfterFee, totalDepositedAfter);
         } else {
-            IERC20(asset).safeIncreaseAllowance(
-                i_yieldProtocolAddress,
-                actualAmount
-            );
+            require(_asset != address(0), P2pYieldProxy__ZeroAddressAsset());
+            require(_amount > 0, P2pYieldProxy__ZeroAssetAmount(_asset));
+
+            address client = s_client;
+
+            uint256 assetAmountBefore = IERC20(_asset).balanceOf(address(this));
+
+            // Transfer tokens from client to proxy using standard ERC20 transferFrom
+            // Client must have approved P2pYieldProxy to spend tokens
+            IERC20(_asset).safeTransferFrom(client, address(this), _amount);
+
+            uint256 assetAmountAfter = IERC20(_asset).balanceOf(address(this));
+            uint256 actualAmount = assetAmountAfter - assetAmountBefore;
+
+            require(
+                actualAmount == _amount, P2pYieldProxy__DifferentActuallyDepositedAmount(_asset, _amount, actualAmount)
+            ); // no support for fee-on-transfer or rebasing tokens
+
+            uint256 amountToDepositAfterFee = actualAmount * s_clientBasisPointsOfDeposit / 10_000;
+
+            uint256 totalDepositedAfter = s_totalDeposited[_vaultId][_asset] + amountToDepositAfterFee;
+            s_totalDeposited[_vaultId][_asset] = totalDepositedAfter;
+            emit P2pYieldProxy__Deposited(_vaultId, _asset, amountToDepositAfterFee, totalDepositedAfter);
+
+            uint256 erc20FeeAmount = actualAmount - amountToDepositAfterFee;
+            if (erc20FeeAmount > 0) {
+                emit P2pYieldProxy__DepositFee(_asset, erc20FeeAmount);
+                IERC20(_asset).safeTransfer(i_p2pTreasury, erc20FeeAmount);
+            }
+
+            // Approve yield protocol to spend tokens
+            IERC20(_asset).safeIncreaseAllowance(i_yieldProtocolAddress, amountToDepositAfterFee);
         }
 
-        i_yieldProtocolAddress.functionCall(_yieldProtocolDepositCalldata);
+        uint256 nativeFeeAmount = msg.value - nativeAmountToDepositAfterFee;
+        if (nativeFeeAmount > 0) {
+            emit P2pYieldProxy__DepositFee(NATIVE, nativeFeeAmount);
+            Address.sendValue(i_p2pTreasury, nativeFeeAmount);
+        }
+
+        i_yieldProtocolAddress.functionCallWithValue(_yieldProtocolDepositCalldata, nativeAmountToDepositAfterFee);
     }
 
     /// @notice Withdraw assets from yield protocol
+    /// @param _vaultId vault ID
     /// @param _asset ERC-20 asset address
     /// @param _yieldProtocolWithdrawalCalldata calldata for withdraw function of yield protocol
-    function _withdraw(
-        address _asset,
-        bytes memory _yieldProtocolWithdrawalCalldata
-    )
-    internal
-    onlyClient
-    nonReentrant
+    function _withdraw(uint256 _vaultId, address _asset, bytes memory _yieldProtocolWithdrawalCalldata)
+        internal
+        nonReentrant
     {
-        uint256 assetAmountBefore = IERC20(_asset).balanceOf(address(this));
+        int256 accruedRewards = calculateAccruedRewards(_vaultId, _asset);
+
+        bool isNative = _asset == NATIVE;
+
+        uint256 assetAmountBefore = isNative ? address(this).balance : IERC20(_asset).balanceOf(address(this));
 
         // withdraw assets from Protocol
         i_yieldProtocolAddress.functionCall(_yieldProtocolWithdrawalCalldata);
 
-        uint256 assetAmountAfter = IERC20(_asset).balanceOf(address(this));
+        uint256 assetAmountAfter = isNative ? address(this).balance : IERC20(_asset).balanceOf(address(this));
 
         uint256 newAssetAmount = assetAmountAfter - assetAmountBefore;
 
-        uint256 totalWithdrawnBefore = s_totalWithdrawn[_asset];
-        uint256 totalWithdrawnAfter = totalWithdrawnBefore + newAssetAmount;
-        uint256 totalDeposited = s_totalDeposited[_asset];
+        if (newAssetAmount == 0) {
+            emit P2pYieldProxy__EmergencyWithdrawalQueueFlow(_vaultId, _asset);
+            return;
+        }
+
+        Withdrawn memory withdrawn = s_totalWithdrawn[_vaultId][_asset];
+        uint256 totalWithdrawnBefore = uint256(withdrawn.amount);
+        uint256 accruedRewardsPositive;
+        if (accruedRewards > 0) {
+            accruedRewardsPositive = uint256(accruedRewards);
+        }
+
+        uint256 profitPortion = newAssetAmount > accruedRewardsPositive ? accruedRewardsPositive : newAssetAmount;
+        uint256 principalPortion = newAssetAmount - profitPortion;
+
+        uint256 totalWithdrawnAfter = totalWithdrawnBefore + principalPortion;
 
         // update total withdrawn
-        s_totalWithdrawn[_asset] = totalWithdrawnAfter;
-
-        // Calculate profit increment
-        // profit = (total withdrawn after this - total deposited)
-        // If it's negative or zero, no profit yet
-        uint256 profitBefore;
-        if (totalWithdrawnBefore > totalDeposited) {
-            profitBefore = totalWithdrawnBefore - totalDeposited;
-        }
-        uint256 profitAfter;
-        if (totalWithdrawnAfter > totalDeposited) {
-            profitAfter = totalWithdrawnAfter - totalDeposited;
-        }
-        uint256 newProfit;
-        if (profitAfter > profitBefore) {
-            newProfit = profitAfter - profitBefore;
-        }
+        withdrawn.amount = uint208(totalWithdrawnAfter);
+        withdrawn.lastFeeCollectionTime = uint48(block.timestamp);
+        s_totalWithdrawn[_vaultId][_asset] = withdrawn;
 
         uint256 p2pAmount;
-        if (newProfit > 0) {
+        if (accruedRewards > 0) {
             // That extra 9999 ensures that any nonzero remainder will push the result up by 1 (ceiling division).
-            p2pAmount = (newProfit * (10_000 - s_clientBasisPoints) + 9999) / 10_000;
+            p2pAmount = calculateP2pFeeAmount(profitPortion);
         }
         uint256 clientAmount = newAssetAmount - p2pAmount;
 
         if (p2pAmount > 0) {
-            IERC20(_asset).safeTransfer(i_p2pTreasury, p2pAmount);
+            if (isNative) {
+                Address.sendValue(i_p2pTreasury, p2pAmount);
+            } else {
+                IERC20(_asset).safeTransfer(i_p2pTreasury, p2pAmount);
+            }
         }
         // clientAmount must be > 0 at this point
-        IERC20(_asset).safeTransfer(s_client, clientAmount);
+        if (isNative) {
+            Address.sendValue(s_client, clientAmount);
+        } else {
+            IERC20(_asset).safeTransfer(s_client, clientAmount);
+        }
 
         emit P2pYieldProxy__Withdrawn(
-            i_yieldProtocolAddress,
-            i_yieldProtocolAddress,
-            _asset,
-            newAssetAmount,
-            totalWithdrawnAfter,
-            newProfit,
-            p2pAmount,
-            clientAmount
+            _vaultId, _asset, newAssetAmount, totalWithdrawnAfter, accruedRewards, p2pAmount, clientAmount
         );
     }
 
     /// @inheritdoc IP2pYieldProxy
-    function callAnyFunction(
-        address _yieldProtocolAddress,
-        bytes calldata _yieldProtocolCalldata
-    )
-    external
-    onlyClient
-    nonReentrant
-    calldataShouldBeAllowed(_yieldProtocolAddress, _yieldProtocolCalldata)
+    function callAnyFunction(address _yieldProtocolAddress, bytes calldata _yieldProtocolCalldata)
+        external
+        onlyClient
+        nonReentrant
+        calldataShouldBeAllowed(_yieldProtocolAddress, _yieldProtocolCalldata)
     {
         emit P2pYieldProxy__CalledAsAnyFunction(_yieldProtocolAddress);
         _yieldProtocolAddress.functionCall(_yieldProtocolCalldata);
     }
 
-    /// @inheritdoc IAllowedCalldataChecker
-    function checkCalldata(
-        address _target,
-        bytes4 _selector,
-        bytes calldata _calldataAfterSelector
-    ) public view override(AllowedCalldataChecker, IAllowedCalldataChecker) {
-        i_factory.checkCalldata(
-            _target,
-            _selector,
-            _calldataAfterSelector
-        );
+    /// @inheritdoc IP2pYieldProxy
+    function emergencyTokenWithdraw(address _token) external onlyClient nonReentrant {
+        uint256 amount = IERC20(_token).balanceOf(address(this));
+        emit P2pYieldProxy__EmergencyWithdrawn(_token, amount);
+        IERC20(_token).safeTransfer(s_client, amount);
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function emergencyNativeWithdraw() external onlyClient nonReentrant {
+        uint256 amount = address(this).balance;
+        emit P2pYieldProxy__EmergencyWithdrawn(NATIVE, amount);
+        Address.sendValue(s_client, amount);
+    }
+
+    /// @notice Returns function selector (first 4 bytes of data)
+    /// @param _data calldata (encoded signature + arguments)
+    /// @return functionSelector function selector
+    function _getFunctionSelector(bytes calldata _data) private pure returns (bytes4 functionSelector) {
+        require(_data.length >= 4, P2pYieldProxy__DataTooShort());
+        return bytes4(_data[:4]);
     }
 
     /// @inheritdoc IP2pYieldProxy
@@ -311,28 +320,79 @@ abstract contract P2pYieldProxy is
     }
 
     /// @inheritdoc IP2pYieldProxy
+    function getYieldProtocolAddress() external view returns (address) {
+        return i_yieldProtocolAddress;
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function getAllowedCalldataChecker() external view returns (address) {
+        return address(i_allowedCalldataChecker);
+    }
+
+    /// @inheritdoc IP2pYieldProxy
     function getClient() external view returns (address) {
         return s_client;
     }
 
     /// @inheritdoc IP2pYieldProxy
-    function getClientBasisPoints() external view returns (uint96) {
-        return s_clientBasisPoints;
+    function getClientBasisPointsOfDeposit() external view returns (uint48) {
+        return s_clientBasisPointsOfDeposit;
     }
 
     /// @inheritdoc IP2pYieldProxy
-    function getTotalDeposited(address _asset) external view returns (uint256) {
-        return s_totalDeposited[_asset];
+    function getClientBasisPointsOfProfit() external view returns (uint48) {
+        return s_clientBasisPointsOfProfit;
     }
 
     /// @inheritdoc IP2pYieldProxy
-    function getTotalWithdrawn(address _asset) external view returns (uint256) {
-        return s_totalWithdrawn[_asset];
+    function getTotalDeposited(uint256 _vaultId, address _asset) external view returns (uint256) {
+        return s_totalDeposited[_vaultId][_asset];
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function getTotalWithdrawn(uint256 _vaultId, address _asset) external view returns (uint256) {
+        return s_totalWithdrawn[_vaultId][_asset].amount;
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function getUserPrincipal(uint256 _vaultId, address _asset) public view returns (uint256) {
+        uint256 totalDeposited = s_totalDeposited[_vaultId][_asset];
+        uint256 totalWithdrawn = s_totalWithdrawn[_vaultId][_asset].amount;
+        if (totalDeposited > totalWithdrawn) {
+            return totalDeposited - totalWithdrawn;
+        }
+        return 0;
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function calculateAccruedRewards(uint256 _vaultId, address _asset) public view virtual returns (int256);
+
+    /// @inheritdoc IP2pYieldProxy
+    function getLastFeeCollectionTime(uint256 _vaultId, address _asset) public view returns (uint48) {
+        return s_totalWithdrawn[_vaultId][_asset].lastFeeCollectionTime;
+    }
+
+    /// @inheritdoc IP2pYieldProxy
+    function calculateMinAmountToApproveForDeposit(uint256 _amountToDeposit) public view returns (uint256) {
+        uint48 clientBasisPointsOfDeposit = s_clientBasisPointsOfDeposit;
+        if (clientBasisPointsOfDeposit == 0) {
+            return _amountToDeposit;
+        }
+        return (_amountToDeposit * 10_000 + clientBasisPointsOfDeposit - 1) / clientBasisPointsOfDeposit;
     }
 
     /// @inheritdoc ERC165
     function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165, IERC165) returns (bool) {
-        return interfaceId == type(IP2pYieldProxy).interfaceId ||
-            super.supportsInterface(interfaceId);
+        return interfaceId == type(IP2pYieldProxy).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    /// @notice Calculates P2P treasury fee amount using ceiling division
+    /// @param _amount amount
+    /// @return p2pFeeAmount p2p fee amount
+    function calculateP2pFeeAmount(uint256 _amount) internal view returns (uint256 p2pFeeAmount) {
+        if (_amount == 0) {
+            return 0;
+        }
+        p2pFeeAmount = (_amount * (10_000 - s_clientBasisPointsOfProfit) + 9999) / 10_000;
     }
 }
