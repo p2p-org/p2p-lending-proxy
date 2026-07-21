@@ -3,7 +3,7 @@
 
 // Copy and rename of OpenZeppelin Contracts (last updated v5.0.0) (access/Ownable.sol)
 
-pragma solidity 0.8.27;
+pragma solidity 0.8.30;
 
 /**
  * @dev Contract module which provides a basic access control mechanism, where

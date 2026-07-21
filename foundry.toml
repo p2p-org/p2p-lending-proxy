@@ -3,10 +3,13 @@ src = "src"
 out = "out"
 libs = ["lib"]
 cache_path  = "forge-cache"
-solc-version = "0.8.27"
-evm_version = "cancun"
+solc_version = "0.8.30"
+evm_version = "prague"
 via_ir = true
 optimizer = true
 optimizer-runs = 2000
 
-rpc_endpoints = { mainnet = "https://rpc.ankr.com/eth", sepolia = "https://rpc.ankr.com/eth_sepolia", base = "https://mainnet.base.org" }
+[rpc_endpoints]
+mainnet = "https://mainnet.infura.io/v3/f52bd8e7578c435c978ab9cf68cd3a18"
+sepolia = "https://rpc.ankr.com/eth_sepolia"
+base = "https://mainnet.base.org"
